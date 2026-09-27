@@ -1071,7 +1071,7 @@ function shell() {
       <div class="side-foot">
         <div class="sync-pill" id="syncPill"><i class="dot"></i><span>…</span></div>
         <button class="side-btn" id="syncBtn" title="Підтягнути нові замовлення з SalesDrive">${icon('sync')}<span>Оновити дані</span></button>
-        <div class="side-user"><span>${esc(S.user?.email || '')}</span>${LIVE ? '<button id="logout">Вийти</button>' : ''}</div>
+        <div class="side-user"><span>${esc(S.user?.email || '')}</span>${S.isOwner ? '<button id="vaultBtn" title="Мій дохід" aria-label="Мій дохід" style="padding:2px 6px">🔒</button>' : ''}${LIVE ? '<button id="logout">Вийти</button>' : ''}</div>
       </div>
     </aside>
     <main class="main" id="main">
@@ -1083,6 +1083,7 @@ function shell() {
   $('.nav').addEventListener('click', (e) => { const a = e.target.closest('[data-page]'); if (!a) return; e.preventDefault(); go(a.dataset.page); });
   $('#syncBtn').addEventListener('click', () => runSync({}));
   $('#logout')?.addEventListener('click', async () => { await api.signOut(); location.reload(); });
+  $('#vaultBtn')?.addEventListener('click', () => go('vault'));
   updateSyncPill();
 }
 function updateSyncPill() {
@@ -1132,12 +1133,13 @@ const TITLES = {
   managers: ['Менеджери', 'Продажі, конверсія і зарплата'],
   expenses: ['Витрати', 'Реклама, податки, SMS та інші витрати'],
   salary: ['Зарплата', 'Виплати власникам і команді'],
+  vault: ['Мій дохід', 'Особистий облік: одяг + інші доходи'],
   payments: ['Оплати на рахунок', 'Повні оплати й передоплати з CRM — для звірки з банком'],
   fop: ['ФОП і податки', 'Податки кожного ФОПа й контроль річного ліміту'],
   settings: ['Налаштування', 'Синхронізація, статуси, курси валют'],
 };
 function go(p) {
-  S.page = p; store.set('page', p);
+  S.page = p; if (p !== 'vault') store.set('page', p);
   $$('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.page === p));
   history.replaceState(null, '', '#' + p);
   render();
@@ -1147,10 +1149,10 @@ async function render() {
   const seq = ++renderSeq;
   if (S.page !== 'days') document.querySelector('.cols-pop')?.remove();
   const [t, s] = TITLES[S.page]; $('#pageT').textContent = t;
-  const usesStore = !['settings', 'stores', 'salary', 'fop'].includes(S.page) && activeStores().length > 1;
+  const usesStore = !['settings', 'stores', 'salary', 'fop', 'vault'].includes(S.page) && activeStores().length > 1;
   $('#pageS').innerHTML = esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
   document.documentElement.style.setProperty('--store-accent', usesStore && S.store != null ? `var(${storeColor(S.store)})` : 'transparent');
-  const usesPeriod = !['settings', 'months', 'salary', 'fop'].includes(S.page);
+  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page);
   $('#tools').innerHTML = (usesStore ? storeTool() : '') + (usesPeriod ? periodTool() : '');
   $('#storeSeg')?.addEventListener('click', (e) => { const b = e.target.closest('[data-store]'); if (!b) return; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
   $('#periodBtn')?.addEventListener('click', openPeriod);
@@ -2112,6 +2114,118 @@ PAGES.payments = async (seq) => {
     shown.map((r) => [r.d, r.t, r.id, r.client_name || '', r.sajt == null ? 'без сайту' : storeLabel(r.sajt), mgrName(r.manager_id), r.status, r.kind === 'full' ? 'повна оплата' : 'ПП', r.payment_amount, r.amount, r.checked ? 'так' : '', String(r.comment || '').replace(/\s+/g, ' ')])));
 };
 
+// ================================================================ МІЙ ДОХІД (особисто, під PIN)
+// Бачить лише власник: доступ перевіряє база (is_owner), PIN — додатковий замок в інтерфейсі.
+async function sha256(s) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join(''); }
+function vaultLock(msg = '') {
+  const setup = !S.vaultPin;
+  $('#page').innerHTML = `<div class="card" style="max-width:380px;margin:40px auto;text-align:center">
+    <div style="font-size:30px">🔒</div><h2 class="card-t" style="margin:6px 0 4px">${setup ? 'Створіть PIN-код' : 'Введіть PIN-код'}</h2>
+    <div class="muted small" style="margin-bottom:14px">${setup ? 'Від 4 до 8 цифр. Його знатимете лише ви.' : 'Особистий розділ власника'}</div>
+    <form id="pinF" style="display:flex;flex-direction:column;gap:10px">
+      <input type="password" inputmode="numeric" autocomplete="off" id="pin1" placeholder="PIN" maxlength="8" style="text-align:center;font-size:20px;letter-spacing:.3em">
+      ${setup ? '<input type="password" inputmode="numeric" autocomplete="off" id="pin2" placeholder="Повторіть PIN" maxlength="8" style="text-align:center;font-size:20px;letter-spacing:.3em">' : ''}
+      <div class="neg small" id="pinErr">${esc(msg)}</div>
+      <button class="btn primary" style="justify-content:center">${setup ? 'Зберегти PIN' : 'Відкрити'}</button>
+    </form></div>`;
+  $('#pin1').focus();
+  $('#pinF').addEventListener('submit', async (e) => {
+    e.preventDefault(); const p1 = $('#pin1').value.trim();
+    if (!/^\d{4,8}$/.test(p1)) { $('#pinErr').textContent = 'PIN — від 4 до 8 цифр'; return; }
+    try {
+      if (setup) {
+        if (p1 !== $('#pin2').value.trim()) { $('#pinErr').textContent = 'PIN-коди не збігаються'; return; }
+        const salt = [...crypto.getRandomValues(new Uint8Array(12))].map((x) => x.toString(16).padStart(2, '0')).join('');
+        const v = { salt, hash: await sha256(salt + ':' + p1) };
+        await api.upsert('owner_vault', { key: 'pin', value: v }, 'key'); S.vaultPin = v; S.vaultOk = true; toast('PIN збережено'); render();
+      } else {
+        if (await sha256(S.vaultPin.salt + ':' + p1) !== S.vaultPin.hash) { $('#pin1').value = ''; $('#pinErr').textContent = 'Невірний PIN'; return; }
+        S.vaultOk = true; render();
+      }
+    } catch (err) { $('#pinErr').textContent = err.message; }
+  });
+}
+PAGES.vault = async (seq) => {
+  if (!S.isOwner) { $('#page').innerHTML = '<div class="card"><div class="empty">Цей розділ доступний лише власнику.</div></div>'; return; }
+  if (S.vaultPin === undefined) { const r = (await api.rows('owner_vault', { key: 'pin' }).catch(() => []))[0]; S.vaultPin = r ? r.value : null; }
+  if (seq !== renderSeq) return;
+  if (!S.vaultOk) return vaultLock();
+  const nowM = ymd(new Date()).slice(0, 7);
+  const m = S.vaultMonth || nowM;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="vM" value="${m}" max="${nowM}" style="width:170px"></label><button class="btn sm" id="vLock">🔒 Заблокувати</button>`;
+  $('#vM').addEventListener('change', (e) => { S.vaultMonth = e.target.value || nowM; render(); });
+  $('#vLock').addEventListener('click', () => { S.vaultOk = false; go('overview'); });
+  const [from, to] = monthRange(m);
+  const hFrom = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6, 1); return ymd(d); })();
+  const stores = activeStores();
+  const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
+  const [all, entriesAll, ...st] = await Promise.all([fetchDays(hFrom, to, null), api.rows('owner_entries').catch(() => []), ...stores.map((x) => fetchDays(hFrom, to, x.id))]);
+  if (seq !== renderSeq) return;
+  const usd = usdRate();
+  const monthNet = (days, key) => series(days, 'month').find((x) => x.key === key)?.net || 0;
+  const calc = (key) => {
+    const storeNets = stores.map((x, i) => ({ st: x, net: monthNet(st[i].days, key) }));
+    const total = monthNet(all.days, key);
+    const general = total - storeNets.reduce((a, r) => a + r.net, 0);
+    const sh = shares.map((p) => { const base = p.store_id == null ? total : (storeNets.find((r) => r.st.id === N(p.store_id))?.net || 0); return { p, amount: Math.max(0, base) * N(p.value) / 100 }; });
+    const clothes = total - sh.reduce((a, r) => a + r.amount, 0);
+    const ent = (entriesAll || []).filter((e) => e.month === key);
+    const inc = ent.filter((e) => e.kind === 'income').reduce((a, e) => a + N(e.amount_uah), 0);
+    const exp = ent.filter((e) => e.kind === 'expense').reduce((a, e) => a + N(e.amount_uah), 0);
+    return { storeNets, total, general, sh, clothes, ent, inc, exp, result: clothes + inc - exp };
+  };
+  const C = calc(m);
+  const months = []; for (let d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 1, 1), i = 0; i < 6; i++, d.setMonth(d.getMonth() - 1)) months.push(ymd(d).slice(0, 7));
+  const names = [...new Set((entriesAll || []).map((e) => e.name))];
+  const mName = MONTHS[+m.slice(5, 7) - 1].toLowerCase();
+  const usdS = (v) => `$${nf2.format(Math.round(v / usd * 100) / 100)}`;
+  const entRow = (e) => `<tr><td>${e.kind === 'income' ? '<span class="pill success">дохід</span>' : '<span class="pill fail">витрата</span>'}</td><td><b>${esc(e.name)}</b>${e.comment ? `<div class="muted small">${esc(e.comment)}</div>` : ''}</td><td class="n">${nf2.format(N(e.amount))} ${e.currency === 'UAH' ? '₴' : esc(e.currency)}</td><td class="n ${e.kind === 'expense' ? 'neg' : ''}">${e.kind === 'expense' ? '−' : '+'}${uah(N(e.amount_uah))}</td><td class="n"><button class="icon-btn" data-vdel="${e.id}" title="Видалити">${icon('trash')}</button></td></tr>`;
+  $('#page').innerHTML = `
+  <div class="kpis">
+    <div class="kpi hero"><div class="kpi-l"><span>Мій чистий дохід за ${mName}</span></div><div class="kpi-v ${C.result < 0 ? 'neg' : ''}">${uah(C.result)}</div><div class="kpi-s">${usdS(C.result)} за курсом ${nf2.format(usd)} ₴${to < monthRange(m)[2] ? ' · місяць ще триває' : ''}</div></div>
+    ${kpi('Прибуток з одягу', uah(C.clothes), `${usdS(C.clothes)}${C.sh.length ? ` · після часток ${C.sh.map((r) => esc(r.p.name)).join(', ')}` : ''}`)}
+    ${kpi('Інші доходи', uah(C.inc), C.ent.filter((e) => e.kind === 'income').map((e) => esc(e.name)).join(', ') || 'додайте нижче')}
+    ${kpi('Особисті витрати', uah(C.exp), C.exp ? usdS(C.exp) : 'немає')}
+  </div>
+  <div class="grid">
+    <section class="card c5"><div class="card-h"><div><h2 class="card-t">Одяг: чистий прибуток</h2><div class="card-s">З дашборду: після реклами, собівартості, суми за відмови, з/п менеджерів і всіх витрат</div></div></div>
+      <div class="stat-list">
+        ${C.storeNets.map((r) => `<div class="stat-row"><span>${storeTag(r.st.id)}</span><b class="${r.net < 0 ? 'neg' : ''}">${uah(r.net)}</b></div>`).join('')}
+        ${Math.abs(C.general) >= 1 ? `<div class="stat-row"><span>Загальні витрати / без сайту</span><b>${uah(C.general)}</b></div>` : ''}
+        <div class="stat-row" style="font-weight:700;border-top:1px solid var(--line)"><span>Разом одяг</span><b>${uah(C.total)}</b></div>
+        ${C.sh.map((r) => `<div class="stat-row sub"><span>− ${esc(r.p.name)}: ${nf2.format(N(r.p.value))}% від ${esc(r.p.store_id == null ? 'бізнесу' : storeLabel(r.p.store_id))}</span><b class="neg">−${uah(r.amount)}</b></div>`).join('')}
+        <div class="stat-row" style="font-weight:700"><span>Прибуток з одягу</span><b>${uah(C.clothes)} <span class="muted small">${usdS(C.clothes)}</span></b></div>
+      </div></section>
+    <section class="card c7"><div class="card-h"><div><h2 class="card-t">Інші доходи й витрати за ${mName}</h2><div class="card-s">Напр. «Конструктори» — дохід; особисті витрати, яких немає в дашборді одягу</div></div><button class="btn sm" id="vCopy">Скопіювати з минулого місяця</button></div>
+      <div class="tw">${C.ent.length ? `<table class="t"><tbody>${C.ent.map(entRow).join('')}</tbody></table>` : '<div class="empty">Ще нічого не внесено</div>'}</div>
+      <form class="form" id="vForm" style="margin-top:12px">
+        <label class="f">Тип<select name="kind"><option value="income">Дохід</option><option value="expense">Витрата</option></select></label>
+        <label class="f">Назва<input type="text" name="name" required list="vNames" placeholder="Конструктори"><datalist id="vNames">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>
+        <label class="f">Сума<input type="text" name="amount" inputmode="decimal" required placeholder="0"></label>
+        <label class="f">Валюта<select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select></label>
+        <label class="f wide">Коментар<input type="text" name="comment" placeholder="Необов'язково"></label>
+        <div style="display:flex;gap:8px"><button class="btn primary">${icon('plus')}Додати</button></div>
+      </form>
+      <div class="muted small" style="margin-top:8px">Зарплати менеджерів, податки ФОП, SMS, CRM тощо краще вносити у «Витрати» дашборду — тоді вони вже будуть у прибутку магазинів і не порахуються двічі.</div></section>
+    <section class="card c12"><div class="card-h"><div><h2 class="card-t">По місяцях</h2></div></div>
+      <div class="tw"><table class="t"><thead><tr><th>Місяць</th>${stores.map((x) => `<th class="n">${esc(x.name || '#' + x.id)}</th>`).join('')}<th class="n">Прибуток з одягу</th><th class="n">Інші доходи</th><th class="n">Витрати</th><th class="n">Разом, ₴</th><th class="n">Разом, $</th></tr></thead>
+      <tbody>${months.map((k) => { const X = calc(k); return `<tr><td><b>${MONTHS[+k.slice(5, 7) - 1]}</b> <span class="muted small">${k.slice(0, 4)}</span></td>${X.storeNets.map((r) => `<td class="n">${uah(r.net)}</td>`).join('')}<td class="n">${uah(X.clothes)}</td><td class="n">${uah(X.inc)}</td><td class="n">${X.exp ? '−' + uah(X.exp) : '—'}</td><td class="n"><b class="${X.result < 0 ? 'neg' : ''}">${uah(X.result)}</b></td><td class="n">${usdS(X.result)}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="muted small" style="margin-top:8px">Долари — за поточним курсом із налаштувань (${nf2.format(usd)} ₴).</div></section>
+  </div>`;
+  $('#vForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); const v = Object.fromEntries(new FormData(e.target)); const amount = parseFloat(String(v.amount).replace(/\s/g, '').replace(',', '.'));
+    if (!v.name.trim() || !Number.isFinite(amount)) return toast('Вкажіть назву і суму', true);
+    try { await api.insert('owner_entries', { month: m, kind: v.kind, name: v.name.trim(), amount, currency: v.currency, rate: rateFor(v.currency), comment: v.comment || null }); toast('Додано'); render(); } catch (err) { toast(err.message, true); }
+  });
+  $$('[data-vdel]').forEach((b) => b.addEventListener('click', async () => { if (!(await confirmBox('Видалити запис?', ''))) return; try { await api.remove('owner_entries', N(b.dataset.vdel)); render(); } catch (err) { toast(err.message, true); } }));
+  $('#vCopy').addEventListener('click', async () => {
+    const pm = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 2, 1); return ymd(d).slice(0, 7); })();
+    const src = (entriesAll || []).filter((e) => e.month === pm);
+    if (!src.length) return toast('У минулому місяці записів немає', true);
+    try { for (const e of src) await api.insert('owner_entries', { month: m, kind: e.kind, name: e.name, amount: N(e.amount), currency: e.currency, rate: rateFor(e.currency), comment: e.comment }); toast(`Скопійовано ${src.length}`); render(); } catch (err) { toast(err.message, true); }
+  });
+};
+
 // ================================================================ ФОП І ПОДАТКИ
 PAGES.fop = async (seq) => {
   const nowM = ymd(new Date()).slice(0, 7);
@@ -2467,6 +2581,7 @@ async function boot() {
   S.user = S.user || (await api.session());
   if (!S.user) return loginView();
   try { await loadRefs(); } catch (e) { return loginView('Немає доступу до бази: ' + e.message); }
+  S.isOwner = !!(await api.rpc('is_owner', {}).catch(() => false));
   const h = location.hash.slice(1); if (TITLES[h]) S.page = h;
   shell(); render();
   if (api.subscribe) api.subscribe(onRemoteChange);
