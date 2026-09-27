@@ -682,8 +682,8 @@ function createDemoApi() {
 //  Поки поля порожні, дашборд працює на демо-даних.
 // =====================================================================
 const CONFIG = {
-  SUPABASE_URL: 'https://ВАШ_ПРОЕКТ.supabase.co',
-  SUPABASE_ANON_KEY: 'ВАШ_PUBLISHABLE_KEY',
+  SUPABASE_URL: 'https://qsaifketkgkkgqsroskp.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_vIYeBa96J8MDWjECu1550w_SKZwStun',
   SYNC_FUNCTION: 'odyag-sync',
 };
 
@@ -805,8 +805,8 @@ function createLiveApi() {
   };
 }
 
-const LIVE = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase);
-const api = LIVE ? createLiveApi() : createDemoApi();
+const LIVE = !!(window.__TEST_API__ || (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase));
+const api = window.__TEST_API__ || (LIVE ? createLiveApi() : createDemoApi());
 if (!api.upsert) { api.upsert = async () => []; api.removeWhere = async () => {}; api.rows = async () => []; const r0 = api.rpc; api.rpc = async (n, p) => { try { return await r0(n, p); } catch { return []; } }; }
 
 // ---------------------------------------------------------------- розрахунок звіту
@@ -1269,7 +1269,7 @@ PAGES.overview = async (seq) => {
     <div class="kpi hero"><div class="kpi-l"><span>Чистий прибуток</span>${delta(T.net, PT.net)}</div><div class="kpi-v ${T.net < 0 ? 'neg' : ''}">${uah(T.net)}</div><div class="kpi-s">Рентабельність ${pct(T.netMargin)} · після всіх витрат</div>${sparkSvg(daySer.map((x) => x.net))}</div>
     ${kpi('Виручка', uah(T.revenue), `${int(T.sales)} продажів${T.pending ? ` · з них ${int(T.pending)} ще в дорозі` : ''}`, delta(T.revenue, PT.revenue))}
     ${kpi('Валовий прибуток', uah(T.gross), `Маржа ${pct(T.grossMargin)}`, delta(T.gross, PT.gross))}
-    ${kpi('Заявки', int(T.leads), `Не підтверджено ${int(T.unconfirmed)}`, delta(T.leads, PT.leads))}
+    ${kpi('Заявки', int(T.leads), `Підтв. ${int(T.confirmed)} (${pct(T.confRate, 0)}) · не підтв. ${int(T.unconfirmed)}`, delta(T.leads, PT.leads))}
     ${kpi('Конверсія в продаж', pct(T.conv), `Серед закритих ${pct(T.convClosed)} ${targetFlag(T.conv, tg.conversion)}`, delta(T.conv, PT.conv, { points: true }))}
     ${kpi('Середній чек', uah(T.avg), `Націнка ${pct(T.margin)}`, delta(T.avg, PT.avg))}
     ${kpi('Реклама', uah(T.ads), `ДРР ${pct(T.drr)} від виручки`, delta(T.ads, PT.ads, { invert: true }))}
@@ -1277,7 +1277,6 @@ PAGES.overview = async (seq) => {
     ${kpi('Ціна ліда', usdf(T.cplUsd), `${targetFlag(T.cplUsd, tg.cpl_usd, 'lower', usdf) || 'реклама / заявки'} · CPO ${usdf(T.cpoFactUsd)}`, delta(T.cplUsd, PT.cplUsd, { invert: true }))}
     ${kpi('Оплати на рахунок', uah(T.card), 'повна оплата на рахунок ФОП', delta(T.card, PT.card))}
     ${kpi('Відмови й повернення', int(T.fail + T.returns), `${pct(T.refuseRate)} закритих · повернень ${int(T.returns)}`, delta(T.fail + T.returns, PT.fail + PT.returns, { invert: true }))}
-    ${kpi('Підтверджені', `${int(T.confirmed)} <span class="muted" style="font-size:14px;font-weight:600">${pct(T.confRate, 0)}</span>`, `Ціна підтвердженого ${uah(T.cpc)}`, delta(T.confRate, PT.confRate, { points: true }))}
   </div>
   <div class="grid">
     <section class="card c8"><div class="card-h"><div><h2 class="card-t">Гроші в динаміці</h2><div class="card-s">Виручка, валовий і чистий прибуток</div></div>${groupSeg()}</div>
@@ -1479,7 +1478,9 @@ PAGES.days = async (seq) => {
     ${kpi('Сума за відмови', `<span class="neg">${uah(T.return_costs)}</span>`, `${int(T.fail + T.returns)} відмов × ${uah(N(S.settings.refusal_cost_default))}`, delta(T.return_costs, D.PT.return_costs, { invert: true }))}
     ${kpi('З/п менеджерів', uah(T.mgrPay), 'вже віднято від прибутку', delta(T.mgrPay, D.PT.mgrPay, { invert: true }))}
     ${kpi('Оплати на рахунок', uah(T.card), 'вносяться в таблиці нижче', delta(T.card, D.PT.card))}
-    ${kpi('ROAS · ціна ліда', `${T.roas == null ? '—' : T.roas.toFixed(2).replace('.', ',') + 'x'} · ${usdf(T.cplUsd)}`, `CPO план ${usdf(T.cpoPlanUsd)} · факт ${usdf(T.cpoFactUsd)}`)}
+    ${kpi('ROAS', T.roas == null ? '—' : T.roas.toFixed(2).replace('.', ',') + 'x', targetFlag(T.roas, S.settings.targets?.roas, 'higher', (v) => v + 'x') || 'виручка / реклама', delta(T.roas, D.PT.roas))}
+    ${kpi('Ціна ліда', usdf(T.cplUsd), targetFlag(T.cplUsd, S.settings.targets?.cpl_usd, 'lower', usdf) || 'реклама / заявки', delta(T.cplUsd, D.PT.cplUsd, { invert: true }))}
+    ${kpi('CPO план / факт', `${usdf(T.cpoPlanUsd)} <span class="muted" style="font-size:14px">/ ${usdf(T.cpoFactUsd)}</span>`, 'реклама / підтверджені')}
   </div>
   <section class="card"><div class="card-h"><div><h2 class="card-t">Щоденний звіт</h2><div class="card-s">Реклама й витрати, внесені за період, розподілені по днях</div></div><div style="display:flex;gap:8px"><button class="btn sm" id="colsBtn">${icon('cols')}Стовпці</button><button class="btn sm" id="csv">${icon('dl')}CSV</button></div></div>
     <div class="tw tbl-scroll"><table class="t"><thead><tr>${cols.map((c) => `<th class="${c[2] ? 'n' : ''} ${c[3] || ''}">${c[0]}</th>`).join('')}</tr></thead>
@@ -2334,7 +2335,7 @@ function loginView(err = '') {
   });
 }
 async function boot() {
-  if (CONFIG.SUPABASE_URL && !window.supabase) { $('#app').innerHTML = '<div class="login"><form><h1>Немає з’єднання</h1><div class="muted">Не вдалося завантажити бібліотеку Supabase. Перевірте інтернет і оновіть сторінку.</div></form></div>'; return; }
+  if (!window.__TEST_API__ && CONFIG.SUPABASE_URL && !window.supabase) { $('#app').innerHTML = '<div class="login"><form><h1>Немає з’єднання</h1><div class="muted">Не вдалося завантажити бібліотеку Supabase. Перевірте інтернет і оновіть сторінку.</div></form></div>'; return; }
   S.user = S.user || (await api.session());
   if (!S.user) return loginView();
   try { await loadRefs(); } catch (e) { return loginView('Немає доступу до бази: ' + e.message); }

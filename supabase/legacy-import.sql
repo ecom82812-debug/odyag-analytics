@@ -1,0 +1,20 @@
+-- =====================================================================
+-- Перенесення даних зі старого дашборду одягу (проєкт Supabase «Analytics»).
+-- Виконується в НОВОМУ проєкті. Стара база лише читається.
+--
+-- Крок 1. Запросити сторінки таблиць старої бази (асинхронно, через pg_net):
+--   select legacy.fetch_page(t, 0) from unnest(array['stores','managers','daily_reports','manager_daily','meta_ads']) t;
+--   select legacy.fetch_page('product_stats', g * 1000) from generate_series(0, 15) g;
+-- Крок 2 (через кілька секунд). Зберегти відповіді як є в legacy.raw:
+--   insert into legacy.raw(tbl, id, row)
+--   select r.tbl, e->>'id', e from legacy.requests r join net._http_response h on h.id = r.req_id and h.status_code = 200
+--   cross join lateral jsonb_array_elements(h.content::jsonb) e
+--   on conflict (tbl, id) do update set row = excluded.row, imported_at = now();
+-- Крок 3. Розкласти по нових таблицях (архів до 31.08, ручні дані й реклама — за всі дати):
+--   select legacy.apply('2026-08-31', 45);
+--
+-- Архів (дні до archive_until): цифри старого дашборду без змін.
+-- З 01.09 замовлення беруться з CRM; з архіву за ці дні переносяться лише ручні дані:
+-- реклама ($ → витрата «Реклама / Meta» за курсом 45), оплати на рахунок, CPO план, Meta.
+-- Функції legacy.fetch_page і legacy.apply — див. історію міграцій проєкту (legacy_import_setup, legacy_apply_function).
+-- =====================================================================
