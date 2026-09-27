@@ -80,7 +80,7 @@ const I = {
   up: '<path d="m6 15 6-6 6 6"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
-const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="9" fill="#ffc21a"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#111318" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#111318" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="9" fill="#e9b8c9"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
 // ---------------------------------------------------------------- доступ до даних (Supabase)
 function createLiveApi() {
@@ -507,7 +507,7 @@ function sparkSvg(vals) {
   const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
   const zero = h - 3 - (0 - min) / (max - min || 1) * (h - 6);
   const last = pts[pts.length - 1];
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="M0 ${zero.toFixed(1)}H${w}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 4"/><path d="${d} L${w} ${h} L0 ${h}Z" fill="rgba(255,194,26,.14)"/><path d="${d}" fill="none" stroke="#ffc21a" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="3" fill="#ffc21a"/></svg>`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="M0 ${zero.toFixed(1)}H${w}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 4"/><path d="${d} L${w} ${h} L0 ${h}Z" fill="rgba(233,184,201,.16)"/><path d="${d}" fill="none" stroke="#e9b8c9" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="3" fill="#e9b8c9"/></svg>`;
 }
 
 // ---------------------------------------------------------------- спільні блоки
