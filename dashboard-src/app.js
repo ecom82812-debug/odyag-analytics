@@ -895,11 +895,13 @@ async function openCardCell(btn, day) {
   document.querySelector('.ad-pop')?.remove();
   const list = S.store != null ? activeStores().filter((x) => x.id === S.store) : activeStores();
   if (!list.length) return toast('Спершу потрібні магазини', true);
-  let existing = [];
-  try { existing = await api.rows('daily_manual', { day }); } catch (e) { return toast(e.message, true); }
+  let existing = [], auto = [];
+  try { [existing, auto] = await Promise.all([api.rows('daily_manual', { day }), api.rpc('card_auto', { p_from: day, p_to: day }).catch(() => [])]); } catch (e) { return toast(e.message, true); }
+  const autoOf = (sid) => (auto || []).filter((r) => N(r.sajt) === sid).reduce((a, r) => a + N(r.amount), 0);
+  const isLive = day > String(S.settings.archive_until || '').replace(/"/g, '');
   const pop = document.createElement('div'); pop.className = 'pop ad-pop';
-  pop.innerHTML = `<div style="padding:6px 6px 2px"><div style="font-weight:650">Оплати на рахунок за ${fdate(day)}</div><div class="muted small">Клієнт одразу оплатив повністю на рахунок ФОП, ₴</div></div>
-    <div style="display:flex;flex-direction:column;gap:8px;padding:8px 6px">${list.map((x) => { const r = existing.find((q) => N(q.store_id) === x.id); return `<label class="f">${storeDot(x.id)} ${esc(x.name || 'Сайт #' + x.id)}<input type="text" inputmode="decimal" data-cp="${x.id}" value="${r && N(r.card_payments) ? nf2.format(N(r.card_payments)).replace(/\s/g, '') : ''}" placeholder="0"></label>`; }).join('')}</div>
+  pop.innerHTML = `<div style="padding:6px 6px 2px"><div style="font-weight:650">Оплати на рахунок за ${fdate(day)}</div><div class="muted small">${isLive ? 'Із CRM підтягується автоматично («повна оплата», «ПП150» у коментарі). Тут — лише ручна корекція, ₴ (може бути з мінусом)' : 'Клієнт оплатив на рахунок ФОП, ₴'}</div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;padding:8px 6px">${list.map((x) => { const r = existing.find((q) => N(q.store_id) === x.id); return `<label class="f">${storeDot(x.id)} ${esc(x.name || 'Сайт #' + x.id)}${isLive ? ` <span class="muted small">з CRM: ${uah(autoOf(x.id))}</span>` : ''}<input type="text" inputmode="decimal" data-cp="${x.id}" value="${r && N(r.card_payments) ? nf2.format(N(r.card_payments)).replace(/\s/g, '') : ''}" placeholder="0"></label>`; }).join('')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;padding:4px 6px 6px"><button class="btn sm" id="cpCancel">Скасувати</button><button class="btn sm primary" id="cpSave">Зберегти</button></div>`;
   document.body.appendChild(pop);
   pop.style.position = 'fixed'; pop.style.width = '300px'; pop.style.zIndex = '60';
@@ -917,7 +919,7 @@ async function openCardCell(btn, day) {
       for (const inp of $$('[data-cp]', pop)) {
         const v = parseFloat(inp.value.replace(/\s/g, '').replace(',', '.'));
         const sid = N(inp.dataset.cp); const had = existing.find((q) => N(q.store_id) === sid);
-        const val = Number.isFinite(v) && v > 0 ? v : 0;
+        const val = Number.isFinite(v) && (isLive || v > 0) ? v : 0;
         if (!had && !val) continue;
         if (had && N(had.card_payments) === val) continue;
         await api.upsert('daily_manual', { store_id: sid, day, card_payments: val }, 'store_id,day');
@@ -1371,20 +1373,28 @@ PAGES.fop = async (seq) => {
   $('#fopM').addEventListener('change', (e) => { S.fopMonth = e.target.value || nowM; render(); });
   const [from, to, monthEnd] = monthRange(m);
   const yFrom = m.slice(0, 4) + '-01-01';
-  const [inc, incY, senders, paidRows] = await Promise.all([api.rpc('fop_income', { p_from: from, p_to: to }), api.rpc('fop_income', { p_from: yFrom, p_to: to }), api.rpc('fop_senders'), api.list('expenses', { eq: { fop_period: m } }).catch(() => [])]);
+  const [inc, incY, paidRows, receiptsAll, cardList] = await Promise.all([
+    api.rpc('fop_income', { p_from: from, p_to: monthEnd }), api.rpc('fop_income', { p_from: yFrom, p_to: monthEnd }),
+    api.list('expenses', { eq: { fop_period: m } }).catch(() => []), api.rows('fop_receipts').catch(() => []),
+    api.rpc('card_orders', { p_from: from, p_to: monthEnd }).catch(() => []),
+  ]);
   if (seq !== renderSeq) return;
   const fops = S.fops || [];
-  const wfpFop = S.settings.card_fop == null ? null : N(S.settings.card_fop);
+  const receipts = (receiptsAll || []).map((r) => ({ ...r, date: String(r.date).slice(0, 10) })).filter((r) => r.date >= from && r.date <= monthEnd).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  // На який ФОП надходять «Оплати на рахунок» кожного магазину (Налаштування → тут, нижче).
+  // Якщо не вибрано — ФОП, у якого цей магазин указаний як основний.
+  const cardMap = { ...(S.settings.card_fop_by_store || {}) };
+  for (const st of activeStores()) if (cardMap[st.id] == null) { const f = fops.find((x) => x.active !== false && N(x.store_id) === st.id); if (f) cardMap[st.id] = f.id; }
+  const fopOfStore = (sid) => (cardMap[N(sid)] == null || cardMap[N(sid)] === '' ? null : N(cardMap[N(sid)]));
   const incomeOf = (rows, f) => {
-    let cod = 0, wfp = 0, cnt = 0;
+    let card = 0, supplier = 0;
     for (const r of rows || []) {
-      if (r.kind === 'cod' && r.sender != null && f.sender_id != null && String(r.sender) === String(f.sender_id)) { cod += N(r.amount); cnt += N(r.cnt); }
-      if (r.kind === 'card' && wfpFop === f.id) { wfp += N(r.amount); cnt += N(r.cnt); }
+      if (r.kind === 'card' && r.sender != null && fopOfStore(r.sender) === f.id) card += N(r.amount);
+      if (r.kind === 'supplier' && N(r.sender) === f.id) supplier += N(r.amount);
     }
-    return { cod, wfp, total: cod + wfp, cnt };
+    return { card, supplier, total: card + supplier };
   };
-  const mapped = new Set(fops.filter((f) => f.sender_id != null && f.sender_id !== '').map((f) => String(f.sender_id)));
-  const unassigned = (inc || []).reduce((a, r) => a + ((r.kind === 'cod' && (r.sender == null || !mapped.has(String(r.sender)))) || (r.kind === 'card' && wfpFop == null) ? N(r.amount) : 0), 0);
+  const unassigned = (inc || []).reduce((a, r) => a + (r.kind === 'card' && (r.sender == null || fopOfStore(r.sender) == null) ? N(r.amount) : 0), 0);
   const cards = fops.map((f) => {
     const mi = incomeOf(inc, f), yi = incomeOf(incY, f);
     const ytd = N(f.income_before) + yi.total;
@@ -1392,7 +1402,8 @@ PAGES.fop = async (seq) => {
     const lvl = share == null ? '' : share >= 0.9 ? 'bad' : share >= 0.8 ? 'warn' : 'good';
     const monthTax = fopMonthly(f);
     const paid = (paidRows || []).find((e) => N(e.fop_id) === f.id) || null;
-    return { f, mi, ytd, lim, share, lvl, monthTax, paid };
+    const stores = activeStores().filter((st) => fopOfStore(st.id) === f.id);
+    return { f, mi, ytd, lim, share, lvl, monthTax, paid, stores };
   });
   const due = cards.filter((c) => c.f.active !== false || c.paid);
   const paidSum = due.reduce((a, c) => a + (c.paid ? N(c.paid.amount_uah) : 0), 0);
@@ -1400,16 +1411,20 @@ PAGES.fop = async (seq) => {
   const leftSum = leftCards.reduce((a, c) => a + c.monthTax, 0);
   const mName = MONTHS[+m.slice(5, 7) - 1].toLowerCase();
   const oldRules = S.rules.filter((r) => r.active && /податок|єсв|есв|податк|військов/i.test(`${r.name} ${r.category}`));
+  const cardTotal = (inc || []).filter((r) => r.kind === 'card').reduce((a, r) => a + N(r.amount), 0);
+  const supTotal = (inc || []).filter((r) => r.kind === 'supplier').reduce((a, r) => a + N(r.amount), 0);
+  const fopName = (id) => fops.find((f) => f.id === N(id))?.name || '—';
   $('#page').innerHTML = `
   <div class="kpis">
     <div class="kpi hero"><div class="kpi-l"><span>Податки ФОП за ${mName}</span></div><div class="kpi-v">${uah(paidSum)}</div><div class="kpi-s">сплачено · ${due.filter((c) => c.paid).length} з ${due.length} ФОП${leftSum ? ` · лишилось ${uah(leftSum)} — ${leftCards.map((c) => esc(c.f.name)).join(', ')}` : due.length ? ' · усе сплачено' : ''}</div></div>
-    ${activeStores().map((st) => { const mine = due.filter((c) => c.f.store_id != null && N(c.f.store_id) === st.id); return kpi(`Податки ${esc(st.name || '#' + st.id)}`, uah(mine.reduce((a, c) => a + c.monthTax, 0)), mine.length ? `сплачено ${mine.filter((c) => c.paid).length} з ${mine.length} · ${mine.map((c) => esc(c.f.name)).join(' · ')}` : 'немає ФОП'); }).join('')}
-    ${kpi('Дохід за місяць', uah(cards.reduce((a, c) => a + c.mi.total, 0)), unassigned ? `<span class="warn-t">ще ${uah(unassigned)} не розподілено по ФОП</span>` : 'отримані гроші')}
+    ${kpi('Дохід ФОП за місяць', uah(cardTotal + supTotal), unassigned ? `<span class="warn-t">${uah(unassigned)} оплат не прив’язано до ФОП</span>` : 'оплати на рахунок + виплати постачальника')}
+    ${kpi('Оплати на рахунок', uah(cardTotal), `${int((cardList || []).length)} замовлень із CRM + ручні`)}
+    ${kpi('Виплати від постачальника', uah(supTotal), `${int(receipts.length)} записів`)}
   </div>
   ${fops.length && oldRules.length ? `<div class="hint warn" style="margin-bottom:14px">У Витратах увімкнені правила, схожі на податки: <b>${oldRules.map((r) => esc(r.name)).join(', ')}</b>. Податки ФОП тепер рахуються тут. Вимкніть ці правила, щоб податок не віднімався двічі. <button class="btn sm" data-go="expenses" style="margin-left:6px">До правил</button></div>` : ''}
   <div class="mgr-grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards.map((c) => `
     <section class="card ${c.f.active === false ? 'muted' : ''}">
-      <div class="card-h" style="margin-bottom:6px"><div><h2 class="card-t" style="font-size:16px">${esc(c.f.name)}</h2><div class="card-s">${storeTag(c.f.store_id)} · відправник №${esc(c.f.sender_id || '—')}${wfpFop === c.f.id ? ' · оплати на рахунок' : ''}</div></div>${c.f.active === false ? '<span class="flag">неактивний</span>' : ''}</div>
+      <div class="card-h" style="margin-bottom:6px"><div><h2 class="card-t" style="font-size:16px">${esc(c.f.name)}</h2><div class="card-s">${c.stores.length ? 'оплати на рахунок: ' + c.stores.map((st) => storeTag(st.id)).join(' ') : 'оплати на рахунок не надходять'}</div></div>${c.f.active === false ? '<span class="flag">неактивний</span>' : ''}</div>
       <div class="stat-list">
         <div class="stat-row"><span>Податки на місяць</span><b>${uah(c.monthTax)}</b></div>
         ${[['Єдиний податок', c.f.single_tax], ['ЄСВ', c.f.esv], ['Військовий збір', c.f.military], ['Інше', c.f.other]].filter(([, v]) => N(v)).map(([t, v]) => `<div class="stat-row sub"><span>${t}</span><b>${uah(N(v))}</b></div>`).join('')}
@@ -1417,7 +1432,8 @@ PAGES.fop = async (seq) => {
       ${c.monthTax || c.paid ? `<label class="taxpaid ${c.paid ? 'on' : ''}"><input type="checkbox" data-fpay="${c.f.id}" ${c.paid ? 'checked' : ''}><span><b>Податки за ${mName} сплачено</b><br><span class="small">${c.paid ? `${uah(N(c.paid.amount_uah))} · ${fdate(c.paid.date)}${c.paid.created_by ? ' · ' + esc(c.paid.created_by.split('@')[0]) : ''}` : uah(c.monthTax)}</span></span></label>` : ''}
       <div class="stat-list">
         <div class="stat-row"><span>Дохід за місяць</span><b>${uah(c.mi.total)}</b></div>
-        ${c.mi.wfp ? `<div class="stat-row sub"><span>накладений платіж</span><b>${uah(c.mi.cod)}</b></div><div class="stat-row sub"><span>оплати на рахунок</span><b>${uah(c.mi.wfp)}</b></div>` : ''}
+        <div class="stat-row sub"><span>оплати на рахунок</span><b>${uah(c.mi.card)}</b></div>
+        <div class="stat-row sub"><span>виплати від постачальника</span><b>${uah(c.mi.supplier)}</b></div>
         <div class="stat-row"><span>Дохід з початку року</span><b>${uah(c.ytd)}</b></div>
       </div>
       <div style="margin-top:12px">
@@ -1427,28 +1443,37 @@ PAGES.fop = async (seq) => {
       </div>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn sm" data-fedit="${c.f.id}">${icon('edit')}Змінити</button><button class="btn sm" data-fdel="${c.f.id}">${icon('trash')}</button></div>
     </section>`).join('')}
-    ${fops.length ? '' : '<section class="card"><div class="empty">Додайте ФОПи у формі нижче</div></section>'}
+    ${fops.length ? '' : '<section class="card"><div class="empty">Додайте свої ФОПи у формі нижче</div></section>'}
   </div>
   <div class="grid" style="margin-top:14px">
-    <section class="card c7"><div class="card-h"><div><h2 class="card-t" id="fopFormT">Додати ФОП</h2><div class="card-s">Суми на місяць для 2-ї групи. Коли відмітите «сплачено», сума віднімається з прибутку обраного магазину в цей день.</div></div></div>
+    <section class="card c7"><div class="card-h"><div><h2 class="card-t">Виплати від постачальника</h2><div class="card-s">Гроші, які постачальник переказує на ваш ФОП (дропшипінг). Рахуються в дохід ФОП і річний ліміт; на прибуток не впливають.</div></div></div>
+      ${fops.length ? `<form class="form" id="rcForm">
+        <label class="f">Дата<input type="date" name="date" required value="${to}"></label>
+        <label class="f">На ФОП<select name="fop_id">${fops.filter((f) => f.active !== false).map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></label>
+        <label class="f">Сума, ₴<input type="text" name="amount" inputmode="decimal" required placeholder="0"></label>
+        <label class="f wide">Коментар<input type="text" name="comment" placeholder="Напр. виплата за серпень"></label>
+        <div style="display:flex;gap:8px"><button class="btn primary">${icon('plus')}Додати</button></div>
+      </form>` : '<div class="empty">Спершу додайте ФОП</div>'}
+      <div class="tw" style="margin-top:12px">${receipts.length ? `<table class="t"><thead><tr><th>Дата</th><th>ФОП</th><th class="n">Сума</th><th>Коментар</th><th>Вніс</th><th></th></tr></thead><tbody>${receipts.map((r) => `<tr><td>${fdate(r.date)}</td><td>${esc(fopName(r.fop_id))}</td><td class="n">${uah(N(r.amount))}</td><td class="muted small">${esc(r.comment || '')}</td><td class="muted small">${esc((r.created_by || '').split('@')[0])}</td><td class="n"><button class="icon-btn" data-rcdel="${r.id}" title="Видалити">${icon('trash')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty">За ${mName} виплат ще не вносили</div>`}</div></section>
+    <section class="card c5"><div class="card-h"><div><h2 class="card-t">Куди надходять оплати на рахунок</h2><div class="card-s">Для кожного магазину — ФОП, на реквізити якого клієнти платять</div></div></div>
+      <div class="stat-list">${activeStores().map((st) => `<div class="stat-row" style="align-items:center"><span>${storeTag(st.id)}</span><select data-cmap="${st.id}" style="max-width:200px"><option value="">— не вказано —</option>${fops.map((f) => `<option value="${f.id}" ${fopOfStore(st.id) === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></div>`).join('')}</div>
+      <div class="muted small" style="margin-top:10px">Замовлення без сайту (створені вручну) рахуються лише в «Усі магазини» і до ФОП не прив’язуються — їх можна додати вручну в клітинці «Оплати на рахунок» таблиці «По днях».</div></section>
+    <section class="card c12"><div class="card-h"><div><h2 class="card-t">Оплати на рахунок за ${mName}</h2><div class="card-s">Беруться з CRM автоматично: у коментарі заявки «повна оплата» → уся сума замовлення; «ПП150», «ПП 200» → 150 / 200 ₴. Лише для замовлень з позитивним статусом (Підтверджено, На відправку, Відправлено, Продаж). Спосіб оплати не важливий.</div></div></div>
+      <div class="tw tbl-scroll" style="max-height:420px">${(cardList || []).length ? `<table class="t"><thead><tr><th>Дата</th><th>Заявка</th><th>Магазин</th><th>Статус</th><th class="n">Сума замовлення</th><th class="n">Оплачено на рахунок</th><th>Коментар</th></tr></thead><tbody>${cardList.map((r) => `<tr><td style="white-space:nowrap">${fdate(String(r.order_date).slice(0, 10))}</td><td>#${esc(r.id)}</td><td>${r.sajt == null ? '<span class="muted">без сайту</span>' : storeTag(r.sajt)}</td><td class="small">${esc(r.status)}</td><td class="n">${uah(N(r.payment_amount))}</td><td class="n"><b>${uah(N(r.amount))}</b></td><td class="muted small" style="max-width:360px">${esc(String(r.comment || '').slice(0, 140))}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">За цей місяць оплат на рахунок не знайдено</div>'}</div></section>
+    <section class="card c12"><div class="card-h"><div><h2 class="card-t" id="fopFormT">Додати ФОП</h2><div class="card-s">Суми податків на місяць для 2-ї групи. Коли відмітите «сплачено», сума віднімається з прибутку обраного магазину в цей день.</div></div></div>
       <form class="form" id="fopForm">
-        <label class="f">Назва<input type="text" name="name" required placeholder="ФОП Семенюк"></label>
-        <label class="f">Відправник у накладних<select name="sender_id"><option value="">—</option>${(senders || []).map((x) => `<option value="${esc(x.sender)}">№${esc(x.sender)} · ${int(N(x.cnt))} заявок${x.sajt != null ? ' · ' + esc(storeLabel(x.sajt)) : ''}</option>`).join('')}</select></label>
-        ${storeSelect('store_id', null)}
+        <label class="f">Назва<input type="text" name="name" required placeholder="ФОП Прізвище"></label>
+        ${storeSelect('store_id', null).replace('>Магазин<', '>Магазин для податків<')}
         <label class="f">Єдиний податок, ₴/міс<input type="text" name="single_tax" inputmode="decimal" placeholder="0"></label>
         <label class="f">ЄСВ, ₴/міс<input type="text" name="esv" inputmode="decimal" placeholder="0"></label>
         <label class="f">Військовий збір, ₴/міс<input type="text" name="military" inputmode="decimal" placeholder="0"></label>
         <label class="f">Інше, ₴/міс<input type="text" name="other" inputmode="decimal" placeholder="0"></label>
         <label class="f">Річний ліміт, ₴<input type="text" name="year_limit" inputmode="decimal" placeholder="напр. 6 000 000"></label>
-        <label class="f">Дохід з 1 січня до початку обліку, ₴<input type="text" name="income_before" inputmode="decimal" placeholder="0"></label>
+        <label class="f">Дохід з 1 січня до 01.09.2026, ₴<input type="text" name="income_before" inputmode="decimal" placeholder="0"></label>
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;padding-bottom:8px"><input type="checkbox" name="active" checked style="width:auto;min-height:0">активний</label>
         <div style="display:flex;gap:8px"><button class="btn primary" id="fopSubmit">${icon('plus')}Додати ФОП</button><button type="button" class="btn" id="fopCancel" hidden>Скасувати</button></div>
       </form>
-      <div class="muted small" style="margin-top:8px">«Дохід з 1 січня до початку обліку» — скільки ФОП отримав з 1 січня до 01.09.2026 (у CRM-обліку дашборду дані з вересня), щоб ліміт рахувався за весь рік.</div></section>
-    <section class="card c5"><div class="card-h"><div><h2 class="card-t">Відправники з накладних</h2><div class="card-s">Номер відправника з SalesDrive. Відкрийте приклад заявки в CRM, щоб побачити, який це ФОП.</div></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>№</th><th class="n">Заявок</th><th>Приклад</th><th>ФОП</th></tr></thead><tbody>${(senders || []).map((x) => { const f = fops.find((q) => String(q.sender_id) === String(x.sender)); return `<tr><td><b>${esc(x.sender)}</b></td><td class="n">${int(N(x.cnt))}</td><td>#${esc(x.sample_id)} ${x.sajt != null ? storeTag(x.sajt) : ''}</td><td>${f ? esc(f.name) : '<span class="flag warn">не вказано</span>'}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Відправників ще немає</td></tr>'}</tbody></table></div>
-      <label class="f" style="margin-top:14px">«Оплати на рахунок» надходять на<select id="wfpFop"><option value="">— не вказано —</option>${fops.map((f) => `<option value="${f.id}" ${wfpFop === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
-      <div class="muted small" style="margin-top:6px">«Оплати на рахунок» з таблиці «По днях» зараховуються в дохід цього ФОП. Викуплені замовлення — ФОП-відправнику з накладної (повна сума замовлення). Якщо передоплачені замовлення теж мають відправника, дохід може порахуватись двічі — скажіть, і ми це поправимо.</div></section>
+      <div class="muted small" style="margin-top:8px">«Магазин для податків» — з прибутку якого магазину віднімати податки цього ФОП. Якщо податки спільні, залиште «Загальна» — тоді вони діляться між магазинами.</div></section>
   </div>`;
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
   $$('[data-fpay]').forEach((cb) => cb.addEventListener('change', async () => {
@@ -1467,24 +1492,32 @@ PAGES.fop = async (seq) => {
       S.data = null; render();
     } catch (err) { toast(err.message, true); cb.checked = !cb.checked; cb.disabled = false; }
   }));
-  $('#wfpFop').addEventListener('change', async (e) => {
-    const v = e.target.value === '' ? null : N(e.target.value);
-    try { await api.setSetting('card_fop', v); S.settings.card_fop = v; toast('Збережено'); render(); } catch (err) { toast(err.message, true); }
-  });
-  const ff = $('#fopForm');
+  $$('[data-cmap]').forEach((sel) => sel.addEventListener('change', async () => {
+    const map = { ...(S.settings.card_fop_by_store || {}) }; map[N(sel.dataset.cmap)] = sel.value === '' ? '' : N(sel.value);
+    try { await api.setSetting('card_fop_by_store', map); S.settings.card_fop_by_store = map; toast('Збережено'); render(); } catch (err) { toast(err.message, true); }
+  }));
   const numf = (v) => { const x = parseFloat(String(v || '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(x) ? x : 0; };
+  $('#rcForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault(); const v = Object.fromEntries(new FormData(e.target)); const amount = numf(v.amount);
+    if (!v.date || !amount) return toast('Вкажіть дату і суму', true);
+    try { await api.insert('fop_receipts', { fop_id: N(v.fop_id), date: v.date, amount, comment: v.comment || null }); toast('Виплату додано'); render(); } catch (err) { toast(err.message, true); }
+  });
+  $$('[data-rcdel]').forEach((b) => b.addEventListener('click', async () => {
+    if (!(await confirmBox('Видалити виплату?', 'Сума зникне з доходу ФОП.'))) return;
+    try { await api.remove('fop_receipts', N(b.dataset.rcdel)); render(); } catch (err) { toast(err.message, true); }
+  }));
+  const ff = $('#fopForm');
   ff.addEventListener('submit', async (e) => {
     e.preventDefault(); const v = Object.fromEntries(new FormData(ff));
     if (!v.name.trim()) return toast('Вкажіть назву', true);
-    const row = { name: v.name.trim(), sender_id: v.sender_id || null, store_id: v.store_id ? N(v.store_id) : null, single_tax: numf(v.single_tax), esv: numf(v.esv), military: numf(v.military), other: numf(v.other), year_limit: numf(v.year_limit), income_before: numf(v.income_before), active: !!v.active };
+    const row = { name: v.name.trim(), store_id: v.store_id ? N(v.store_id) : null, single_tax: numf(v.single_tax), esv: numf(v.esv), military: numf(v.military), other: numf(v.other), year_limit: numf(v.year_limit), income_before: numf(v.income_before), active: !!v.active };
     try { if (ff.dataset.id) await api.update('fops', N(ff.dataset.id), row); else await api.insert('fops', { ...row, sort: fops.length }); await loadRefs(); S.data = null; toast(ff.dataset.id ? 'Збережено' : 'ФОП додано'); render(); } catch (err) { toast(err.message, true); }
   });
   $('#fopCancel').addEventListener('click', () => render());
   $$('[data-fedit]').forEach((b) => b.addEventListener('click', () => {
     const f = fops.find((x) => x.id === N(b.dataset.fedit)); if (!f) return;
     for (const k of ['name', 'store_id', 'single_tax', 'esv', 'military', 'other', 'year_limit', 'income_before']) if (ff[k]) ff[k].value = f[k] ?? '';
-    if (f.sender_id && ![...ff.sender_id.options].some((o) => o.value === String(f.sender_id))) ff.sender_id.insertAdjacentHTML('beforeend', `<option value="${esc(f.sender_id)}">№${esc(f.sender_id)}</option>`);
-    ff.sender_id.value = f.sender_id ?? ''; ff.active.checked = f.active !== false;
+    ff.active.checked = f.active !== false;
     ff.dataset.id = f.id; $('#fopSubmit').textContent = 'Зберегти'; $('#fopFormT').textContent = 'Змінити ФОП'; $('#fopCancel').hidden = false; ff.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
   $$('[data-fdel]').forEach((b) => b.addEventListener('click', async () => {

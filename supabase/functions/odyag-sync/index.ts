@@ -183,7 +183,8 @@ Deno.serve(async (req) => {
     for (const o of meta?.fields?.rejectionReason?.options || []) reasonNames[String(o.value)] = o.text
     const rows: any[] = [], items: any[] = [], mgrIds = new Set<number>(), siteIds = new Set<number>()
     for (const o of orders) {
-      if (SAJT_FILTER.length && !SAJT_FILTER.includes(Number(o.sajt))) continue
+      // Беремо сайти зі списку і замовлення без сайту (створені менеджером вручну — вони теж є у звітах CRM)
+      if (SAJT_FILTER.length && Number(o.sajt) && !SAJT_FILTER.includes(Number(o.sajt))) continue
       // Замовлення до INITIAL_SYNC_FROM не беремо: ці дні — в архіві старого дашборду
       if (INITIAL_FROM && String(normDate(o.orderTime) || "").slice(0, 10) < INITIAL_FROM) continue
       const products: any[] = Array.isArray(o.products) ? o.products : []
@@ -219,6 +220,7 @@ Deno.serve(async (req) => {
         sajt: Number(o.sajt) || null,
         manager_id: Number(o.userId) || null,
         payment_method: pmRaw ? (payMethods[pmRaw] || pmRaw) : null,
+        comment: o.comment ? String(o.comment) : null,
         external_id: o.externalId ? String(o.externalId) : null,
         ttn: dl?.trackingNumber ? String(dl.trackingNumber) : null,
         delivery_cost: deliveryCost(dl),
