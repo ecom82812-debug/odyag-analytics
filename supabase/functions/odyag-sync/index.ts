@@ -58,6 +58,7 @@ function normDate(v: unknown): string | null {
 
 function guessCategory(name = "", type?: number): string {
   const n = name.toLowerCase()
+  if (/^\s*не\s*підтвер|^\s*не\s*подтвер/.test(n)) return "work"   // «Не підтверджено» — не відмова
   if (/видал|удал|дубл|спам|тест|архів|обмін|обмен/.test(n)) return "ignore"
   if (/поверн|возврат/.test(n)) return "return"
   if (/відмов|отказ|скасов|отмен|невикуп|не викуп|не забра/.test(n)) return "fail"
@@ -188,7 +189,9 @@ Deno.serve(async (req) => {
       const products: any[] = Array.isArray(o.products) ? o.products : []
       let cost = num(o.costPriceAmount)
       if (!cost) cost = products.reduce((s, p) => s + num(p.costPrice) * (num(p.amount) || 1), 0)
-      const upsell = products.reduce((s, p) => s + (Number(p.preSale) === 1 ? num(p.price) * (num(p.amount) || 1) : 0), 0)
+      // Допродаж: у SalesDrive товар позначено полем upsell = 1 (раніше — preSale)
+      const isUpsell = (p: any) => Number(p.upsell) === 1 || Number(p.preSale) === 1
+      const upsell = products.reduce((s, p) => s + (isUpsell(p) ? num(p.price) * (num(p.amount) || 1) : 0), 0)
       const rr = o.rejectionReason
       const reason = rr == null || rr === "" ? null
         : typeof rr === "object" ? (rr.name || rr.text || null) : (reasonNames[String(rr)] || String(rr))
@@ -227,7 +230,7 @@ Deno.serve(async (req) => {
       products.forEach((p, pos) => items.push({
         order_id: Number(o.id), pos, product_id: Number(p.productId) || null,
         name: p.text || p.documentName || "Без назви", sku: p.sku || "",
-        amount: num(p.amount) || 1, price: num(p.price), cost_price: num(p.costPrice), pre_sale: Number(p.preSale) === 1,
+        amount: num(p.amount) || 1, price: num(p.price), cost_price: num(p.costPrice), pre_sale: isUpsell(p),
       }))
     }
     if (!rows.length) return 0
