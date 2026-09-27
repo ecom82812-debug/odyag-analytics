@@ -2065,17 +2065,21 @@ PAGES.fop = async (seq) => {
   // На який ФОП надходять «Оплати на рахунок» кожного магазину (Налаштування → тут, нижче).
   // Якщо не вибрано — ФОП, у якого цей магазин указаний як основний.
   const cardMap = { ...(S.settings.card_fop_by_store || {}) };
-  for (const st of activeStores()) if (cardMap[st.id] == null) { const f = fops.find((x) => x.active !== false && N(x.store_id) === st.id); if (f) cardMap[st.id] = f.id; }
-  const fopOfStore = (sid) => (cardMap[N(sid)] == null || cardMap[N(sid)] === '' ? null : N(cardMap[N(sid)]));
+  const activeFops = fops.filter((x) => x.active !== false);
+  for (const st of activeStores()) if (cardMap[st.id] == null) { const f = activeFops.find((x) => N(x.store_id) === st.id) || (activeFops.length === 1 ? activeFops[0] : null); if (f) cardMap[st.id] = f.id; }
+  // Замовлення без сайту — на ФОП, якщо він один
+  const fopOfStore = (sid) => { if (sid == null || sid === '' || sid === 'null') return activeFops.length === 1 ? activeFops[0].id : null; return cardMap[N(sid)] == null || cardMap[N(sid)] === '' ? null : N(cardMap[N(sid)]); };
   const incomeOf = (rows, f) => {
     let card = 0, supplier = 0;
     for (const r of rows || []) {
-      if (r.kind === 'card' && r.sender != null && fopOfStore(r.sender) === f.id) card += N(r.amount);
+      if (r.kind === 'card' && fopOfStore(r.sender) === f.id) card += N(r.amount);
       if (r.kind === 'supplier' && N(r.sender) === f.id) supplier += N(r.amount);
     }
     return { card, supplier, total: card + supplier };
   };
-  const unassigned = (inc || []).reduce((a, r) => a + (r.kind === 'card' && (r.sender == null || fopOfStore(r.sender) == null) ? N(r.amount) : 0), 0);
+  const unassigned = (inc || []).reduce((a, r) => a + (r.kind === 'card' && fopOfStore(r.sender) == null ? N(r.amount) : 0), 0);
+  const BANKS = ['ПриватБанк', 'Monobank', 'NovaPay'];
+  const byBank = (f) => { const m = {}; for (const r of receipts) if (N(r.fop_id) === f.id) m[r.bank || 'Без банку'] = (m[r.bank || 'Без банку'] || 0) + N(r.amount); return Object.entries(m); };
   const cards = fops.map((f) => {
     const mi = incomeOf(inc, f), yi = incomeOf(incY, f);
     const ytd = N(f.income_before) + yi.total;
@@ -2115,6 +2119,7 @@ PAGES.fop = async (seq) => {
         <div class="stat-row"><span>Дохід за місяць</span><b>${uah(c.mi.total)}</b></div>
         <div class="stat-row sub"><span>оплати на рахунок</span><b>${uah(c.mi.card)}</b></div>
         <div class="stat-row sub"><span>виплати від постачальника</span><b>${uah(c.mi.supplier)}</b></div>
+        ${byBank(c.f).map(([b, v]) => `<div class="stat-row sub" style="padding-left:18px"><span>${esc(b)}</span><b>${uah(v)}</b></div>`).join('')}
         <div class="stat-row"><span>Дохід з початку року</span><b>${uah(c.ytd)}</b></div>
       </div>
       <div style="margin-top:12px">
@@ -2122,7 +2127,7 @@ PAGES.fop = async (seq) => {
           <div class="limbar"><i class="${c.lvl}" style="width:${Math.min(100, c.share * 100).toFixed(1)}%"></i></div>
           <div class="muted small" style="margin-top:6px">${c.share >= 1 ? '<span class="neg">Ліміт перевищено</span>' : `Залишилось ${uah(c.lim - c.ytd)}`}${c.share >= 0.8 && c.share < 1 ? ' · <span class="warn-t">час планувати</span>' : ''}</div>` : '<div class="muted small">Вкажіть річний ліміт, щоб бачити, скільки лишилось.</div>'}
       </div>
-      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn sm" data-fedit="${c.f.id}">${icon('edit')}Змінити</button><button class="btn sm" data-fdel="${c.f.id}">${icon('trash')}</button></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn sm primary" data-fadd="${c.f.id}">${icon('plus')}Внести виплату</button><button class="btn sm" data-fedit="${c.f.id}">${icon('edit')}Змінити</button><button class="btn sm" data-fdel="${c.f.id}">${icon('trash')}</button></div>
     </section>`).join('')}
     ${fops.length ? '' : '<section class="card"><div class="empty">Додайте свої ФОПи у формі нижче</div></section>'}
   </div>
@@ -2131,15 +2136,16 @@ PAGES.fop = async (seq) => {
       ${fops.length ? `<form class="form" id="rcForm">
         <label class="f">Дата<input type="date" name="date" required value="${to}"></label>
         <label class="f">На ФОП<select name="fop_id">${fops.filter((f) => f.active !== false).map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></label>
+        <label class="f">Банк<select name="bank">${BANKS.map((b) => `<option ${store.get('rcBank', 'ПриватБанк') === b ? 'selected' : ''}>${b}</option>`).join('')}</select></label>
         <label class="f">Сума, ₴<input type="text" name="amount" inputmode="decimal" required placeholder="0"></label>
         <label class="f wide">Коментар<input type="text" name="comment" placeholder="Напр. виплата за серпень"></label>
         <div style="display:flex;gap:8px"><button class="btn primary">${icon('plus')}Додати</button></div>
       </form>` : '<div class="empty">Спершу додайте ФОП</div>'}
-      <div class="tw" style="margin-top:12px">${receipts.length ? `<table class="t"><thead><tr><th>Дата</th><th>ФОП</th><th class="n">Сума</th><th>Коментар</th><th>Вніс</th><th></th></tr></thead><tbody>${receipts.map((r) => `<tr><td>${fdate(r.date)}</td><td>${esc(fopName(r.fop_id))}</td><td class="n">${uah(N(r.amount))}</td><td class="muted small">${esc(r.comment || '')}</td><td class="muted small">${esc((r.created_by || '').split('@')[0])}</td><td class="n"><button class="icon-btn" data-rcdel="${r.id}" title="Видалити">${icon('trash')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty">За ${mName} виплат ще не вносили</div>`}</div></section>
+      <div class="tw" style="margin-top:12px">${receipts.length ? `<table class="t"><thead><tr><th>Дата</th><th>ФОП</th><th>Банк</th><th class="n">Сума</th><th>Коментар</th><th>Вніс</th><th></th></tr></thead><tbody>${receipts.map((r) => `<tr><td>${fdate(r.date)}</td><td>${esc(fopName(r.fop_id))}</td><td>${esc(r.bank || '—')}</td><td class="n">${uah(N(r.amount))}</td><td class="muted small">${esc(r.comment || '')}</td><td class="muted small">${esc((r.created_by || '').split('@')[0])}</td><td class="n"><button class="icon-btn" data-rcdel="${r.id}" title="Видалити">${icon('trash')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty">За ${mName} виплат ще не вносили</div>`}</div></section>
     <section class="card c5"><div class="card-h"><div><h2 class="card-t">Куди надходять оплати на рахунок</h2><div class="card-s">Для кожного магазину — ФОП, на реквізити якого клієнти платять</div></div></div>
       <div class="stat-list">${activeStores().map((st) => `<div class="stat-row" style="align-items:center"><span>${storeTag(st.id)}</span><select data-cmap="${st.id}" style="max-width:200px"><option value="">— не вказано —</option>${fops.map((f) => `<option value="${f.id}" ${fopOfStore(st.id) === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></div>`).join('')}</div>
       <div class="muted small" style="margin-top:10px">Замовлення без сайту (створені вручну) рахуються лише в «Усі магазини» і до ФОП не прив’язуються — їх можна додати вручну в клітинці «Оплати на рахунок» таблиці «По днях».</div></section>
-    <section class="card c12"><div class="card-h"><div><h2 class="card-t">Оплати на рахунок за ${mName}</h2><div class="card-s">Беруться з CRM автоматично: у коментарі заявки «повна оплата» → уся сума замовлення; «ПП150», «ПП 200» → 150 / 200 ₴. Лише для замовлень з позитивним статусом (Підтверджено, На відправку, Відправлено, Продаж). Спосіб оплати не важливий.</div></div></div>
+    <section class="card c12"><div class="card-h"><div><h2 class="card-t">Оплати на рахунок за ${mName}</h2><div class="card-s">Беруться з CRM автоматично: у коментарі заявки «повна оплата» → уся сума замовлення; «ПП150», «ПП 200» → 150 / 200 ₴. Рахуються замовлення з позитивним статусом (Підтверджено, На відправку, Відправлено, Продаж), а також передоплати «ПП» у відмовах — їх не повертаєте. Спосіб оплати не важливий.</div></div></div>
       <div class="tw tbl-scroll" style="max-height:420px">${(cardList || []).length ? `<table class="t"><thead><tr><th>Дата</th><th>Заявка</th><th>Магазин</th><th>Статус</th><th class="n">Сума замовлення</th><th class="n">Оплачено на рахунок</th><th>Коментар</th></tr></thead><tbody>${cardList.map((r) => `<tr><td style="white-space:nowrap">${fdate(String(r.order_date).slice(0, 10))}</td><td>#${esc(r.id)}</td><td>${r.sajt == null ? '<span class="muted">без сайту</span>' : storeTag(r.sajt)}</td><td class="small">${esc(r.status)}</td><td class="n">${uah(N(r.payment_amount))}</td><td class="n"><b>${uah(N(r.amount))}</b></td><td class="muted small" style="max-width:360px">${esc(String(r.comment || '').slice(0, 140))}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">За цей місяць оплат на рахунок не знайдено</div>'}</div></section>
     <section class="card c12"><div class="card-h"><div><h2 class="card-t" id="fopFormT">Додати ФОП</h2><div class="card-s">Суми податків на місяць для 2-ї групи. Коли відмітите «сплачено», сума віднімається з прибутку обраного магазину в цей день.</div></div></div>
       <form class="form" id="fopForm">
@@ -2181,8 +2187,10 @@ PAGES.fop = async (seq) => {
   $('#rcForm')?.addEventListener('submit', async (e) => {
     e.preventDefault(); const v = Object.fromEntries(new FormData(e.target)); const amount = numf(v.amount);
     if (!v.date || !amount) return toast('Вкажіть дату і суму', true);
-    try { await api.insert('fop_receipts', { fop_id: N(v.fop_id), date: v.date, amount, comment: v.comment || null }); toast('Виплату додано'); render(); } catch (err) { toast(err.message, true); }
+    store.set('rcBank', v.bank);
+    try { await api.insert('fop_receipts', { fop_id: N(v.fop_id), date: v.date, amount, bank: v.bank || null, comment: v.comment || null }); toast('Виплату додано'); render(); } catch (err) { toast(err.message, true); }
   });
+  $$('[data-fadd]').forEach((b) => b.addEventListener('click', () => { const f = $('#rcForm'); if (!f) return; f.fop_id.value = b.dataset.fadd; f.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => f.amount.focus(), 350); }));
   $$('[data-rcdel]').forEach((b) => b.addEventListener('click', async () => {
     if (!(await confirmBox('Видалити виплату?', 'Сума зникне з доходу ФОП.'))) return;
     try { await api.remove('fop_receipts', N(b.dataset.rcdel)); render(); } catch (err) { toast(err.message, true); }
