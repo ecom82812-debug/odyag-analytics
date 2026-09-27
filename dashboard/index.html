@@ -2060,7 +2060,7 @@ PAGES.fop = async (seq) => {
     api.rpc('card_orders', { p_from: from, p_to: monthEnd }).catch(() => []),
   ]);
   if (seq !== renderSeq) return;
-  const fops = S.fops || [];
+  const fops = (S.fops || []).map((f) => ({ ...f, id: N(f.id) }));
   const receipts = (receiptsAll || []).map((r) => ({ ...r, date: String(r.date).slice(0, 10) })).filter((r) => r.date >= from && r.date <= monthEnd).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   // На який ФОП надходять «Оплати на рахунок» кожного магазину (Налаштування → тут, нижче).
   // Якщо не вибрано — ФОП, у якого цей магазин указаний як основний.
@@ -2150,7 +2150,7 @@ PAGES.fop = async (seq) => {
         <label class="f">Військовий збір, ₴/міс<input type="text" name="military" inputmode="decimal" placeholder="0"></label>
         <label class="f">Інше, ₴/міс<input type="text" name="other" inputmode="decimal" placeholder="0"></label>
         <label class="f">Річний ліміт, ₴<input type="text" name="year_limit" inputmode="decimal" placeholder="напр. 6 000 000"></label>
-        <label class="f">Дохід з 1 січня до 01.09.2026, ₴<input type="text" name="income_before" inputmode="decimal" placeholder="0"></label>
+        <label class="f">Дохід з 1 січня, якого немає в дашборді, ₴<input type="text" name="income_before" inputmode="decimal" placeholder="0"></label>
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;padding-bottom:8px"><input type="checkbox" name="active" checked style="width:auto;min-height:0">активний</label>
         <div style="display:flex;gap:8px"><button class="btn primary" id="fopSubmit">${icon('plus')}Додати ФОП</button><button type="button" class="btn" id="fopCancel" hidden>Скасувати</button></div>
       </form>
