@@ -368,7 +368,7 @@ async function loadPeriod(force = false) {
 function shell() {
   const nav = [
     ['Аналітика', [['overview', 'Огляд', 'home'], ['stores', 'Магазини', 'shop'], ['days', 'По днях', 'days'], ['months', 'По місяцях', 'months'], ['products', 'Товари', 'box'], ['ads', 'Реклама', 'ads'], ['managers', 'Менеджери', 'users']]],
-    ['Облік', [['payments', 'Оплати на рахунок', 'check'], ['obmin', 'Обміни', 'sync'], ['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
+    ['Облік', [['payments', 'Оплати на рахунок', 'check'],['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
     ['Система', [['settings', 'Налаштування', 'gear']]],
   ];
   $('#app').innerHTML = `
