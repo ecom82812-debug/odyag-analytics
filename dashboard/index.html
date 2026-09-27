@@ -339,7 +339,7 @@ table.t .name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; whi
 .col-row.over-bot { border-bottom: 2px solid var(--s1); border-radius: 0; }
 
 /* кольори магазинів */
-.sdot { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; flex: none; }
+.sdot { display: inline-block; width: 8px; height: 8px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.14); margin-right: 6px; vertical-align: 1px; flex: none; }
 .stag { white-space: nowrap; }
 .seg button .sdot { opacity: .55; }
 .seg button.on .sdot { opacity: 1; }
@@ -955,6 +955,7 @@ S.group = autoGroup(S.from, S.to);
 async function loadRefs() {
   const [settings, statuses, managers, rules, stores, people, fops] = await Promise.all([api.settings(), api.list('statuses'), api.list('managers'), api.list('rules'), api.list('stores'), api.list('people').catch(() => []), api.list('fops').catch(() => [])]);
   S.settings = settings; S.statuses = statuses; S.managers = managers; S.rules = rules; S.stores = stores; S.people = people || []; S.fops = fops || [];
+  applyStoreColors();
   if (S.store != null && !activeStores().some((x) => x.id === S.store)) { S.store = null; store.set('store', null); }
 }
 const fin = () => (S.settings.finance_date === 'payment' ? 'payment' : 'order');
@@ -964,7 +965,10 @@ const activeStores = () => S.stores.filter((x) => x.active !== false);
 const storeLabel = (id) => (id == null ? 'Загальна' : (S.stores.find((x) => x.id === N(id))?.name || 'Сайт #' + id));
 // Колір магазину: той самий у всіх вкладках (1-й синій, 2-й помаранчевий, 3-й …)
 const STORE_COLORS = ['--s1', '--s2', '--s3'];
-const storeColor = (id) => { const i = activeStores().findIndex((x) => x.id === N(id)); return i < 0 ? '--ink-3' : STORE_COLORS[i % STORE_COLORS.length]; };
+// Власні кольори магазинів (Налаштування → Магазини) зберігаються в settings.store_colors: { id: '#rrggbb' }
+const storeColors = () => (S.settings.store_colors && typeof S.settings.store_colors === 'object' ? S.settings.store_colors : {});
+function applyStoreColors() { for (const [id, c] of Object.entries(storeColors())) if (/^#[0-9a-f]{3,8}$/i.test(c)) document.documentElement.style.setProperty('--st-' + id, c); }
+const storeColor = (id) => { if (storeColors()[N(id)]) return '--st-' + N(id); const i = activeStores().findIndex((x) => x.id === N(id)); return i < 0 ? '--ink-3' : STORE_COLORS[i % STORE_COLORS.length]; };
 const storeDot = (id) => `<i class="sdot" style="background:var(${storeColor(id)})"></i>`;
 const storeTag = (id) => (id == null ? '<span class="muted">Загальна</span>' : `<span class="stag">${storeDot(id)}${esc(storeLabel(id))}</span>`);
 // Загальні витрати діляться порівну між активними магазинами (налаштування general_split)
@@ -1722,16 +1726,25 @@ PAGES.ads = async (seq) => {
 //   + % від допродажу по викуплених замовленнях. Допродаж можна виправити вручну за конкретний день.
 PAGES.managers = async (seq) => {
   const D = await loadPeriod(); if (seq !== renderSeq) return;
+  // Частка прибутку магазину (як «20% від прибутку madona» у старому дашборді): люди з роллю «share» з тим самим ім'ям, що в менеджера
+  const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
+  const shareStores = [...new Set(shares.map((p) => (p.store_id == null ? null : N(p.store_id))))];
+  const stNet = Object.fromEntries(await Promise.all(shareStores.map(async (id) => [id, totals(Object.values((await fetchDays(S.from, S.to, id)).days)).net])));
+  if (seq !== renderSeq) return;
+  const shareOf = (name) => shares.filter((p) => (p.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
+    .map((p) => { const net = N(stNet[p.store_id == null ? null : N(p.store_id)]); return { p, net, amount: Math.max(0, net) * N(p.value) / 100 }; });
   const rows = D.mstats.map((r) => {
     const m = S.managers.find((x) => x.id === N(r.manager_id)) || {};
     const orderPay = N(m.rate_per_order) * N(r.paid_orders), upsellPay = N(m.upsell_pct) * N(r.upsell);
-    return { ...r, name: mgrName(r.manager_id), m, orderPay, upsellPay, pay: orderPay + upsellPay, conv: div(N(r.success), N(r.leads)), refuse: div(N(r.fail) + N(r.returns), N(r.success) + N(r.fail) + N(r.returns)) };
+    const sh = shareOf(mgrName(r.manager_id)); const shareAmt = sh.reduce((a, x) => a + x.amount, 0);
+    return { ...r, name: mgrName(r.manager_id), m, orderPay, upsellPay, sh, shareAmt, pay: orderPay + upsellPay, total: orderPay + upsellPay + shareAmt, conv: div(N(r.success), N(r.leads)), refuse: div(N(r.fail) + N(r.returns), N(r.success) + N(r.fail) + N(r.returns)) };
   }).filter((r) => N(r.leads) || N(r.sales) || N(r.paid_orders)).sort((a, b) => b.pay - a.pay);
   const totalPay = rows.reduce((s, r) => s + r.pay, 0);
+  const totalShare = rows.reduce((s, r) => s + r.shareAmt, 0);
   const det = (D.mgrDaily || []).filter((r) => N(r.sales) || N(r.upsell) || N(r.upsell_potential)).sort((a, b) => String(b.day).localeCompare(String(a.day)) || mgrName(a.manager_id).localeCompare(mgrName(b.manager_id)));
   $('#page').innerHTML = `${archiveHint(D.T)}
   <div class="kpis">
-    ${kpi('Зарплата менеджерів', uah(totalPay), S.settings.managers_in_pnl === false ? 'не враховується у прибутку' : 'вже віднято від чистого прибутку')}
+    ${kpi('Зарплатні витрати за період', uah(totalPay + totalShare), totalShare ? `ставка й допродаж ${uah(totalPay)} + частка прибутку ${uah(totalShare)}` : (S.settings.managers_in_pnl === false ? 'не враховується у прибутку' : 'вже віднято від чистого прибутку'))}
     ${kpi('Замовлень до оплати', int(rows.reduce((s, r) => s + N(r.paid_orders), 0)), 'підтверджені + відмови')}
     ${kpi('Допродаж (продано)', uah(rows.reduce((s, r) => s + N(r.upsell), 0)), `у дорозі та продано: ${uah(rows.reduce((s, r) => s + N(r.upsell_potential), 0))}`)}
     ${kpi('З/п на одне замовлення', uah(div(totalPay, rows.reduce((s, r) => s + N(r.paid_orders), 0))), '')}
@@ -1739,13 +1752,15 @@ PAGES.managers = async (seq) => {
   <div class="mgr-grid">${rows.map((r) => `
     <section class="card mgr-card">
       <div style="display:flex;gap:12px;align-items:center"><div class="ava">${esc((r.name || '?').slice(0, 1))}</div><div><div style="font-weight:650">${esc(r.name)}</div><div class="muted small">${r.m.rate_per_order ? `${uah2(N(r.m.rate_per_order))} за замовлення` : 'ставку не задано'}${r.m.upsell_pct ? ` · ${pct(N(r.m.upsell_pct), 0)} від допродажу` : ''}</div></div></div>
-      <div class="mgr-pay">${uah(r.pay)}</div>
+      <div class="mgr-pay">${uah(r.total)}</div>
       <div class="stat-list">
         <div class="stat-row"><span>Підтв. + відмови</span><b>${int(N(r.paid_orders))} шт</b></div>
         <div class="stat-row"><span>Ставка</span><b>${uah(r.orderPay)}</b></div>
         <div class="stat-row"><span>Допродаж (продано)</span><b>${uah(N(r.upsell))}</b></div>
         <div class="stat-row"><span>Допродаж (усього, з тих що в дорозі)</span><b class="muted">${uah(N(r.upsell_potential))}</b></div>
         <div class="stat-row"><span>${pct(N(r.m.upsell_pct), 0)} від допродажу</span><b>${uah(r.upsellPay)}</b></div>
+        ${r.sh.map((x) => `<div class="stat-row" style="border-top:1px solid var(--line)"><span>Чистий прибуток ${esc(x.p.store_id == null ? 'бізнесу' : storeLabel(x.p.store_id))}</span><b>${uah(x.net)}</b></div>
+        <div class="stat-row"><span>${nf2.format(N(x.p.value))}% від прибутку</span><b class="pos" style="color:var(--pos, #16a34a)">${uah(x.amount)}</b></div>`).join('')}
         <div class="stat-row" style="border-top:1px solid var(--line)"><span>Заявки</span><b>${int(N(r.leads))}</b></div>
         <div class="stat-row"><span>Підтверджено</span><b>${int(N(r.confirmed))} <span class="muted small">${pct(div(N(r.confirmed), N(r.leads)), 0)}</span></b></div>
         <div class="stat-row"><span>Відмови й повернення</span><b class="${r.refuse > 0.3 ? 'neg' : ''}">${pct(r.refuse, 0)}</b></div>
@@ -1759,7 +1774,7 @@ PAGES.managers = async (seq) => {
       return `<tr><td style="white-space:nowrap">${fdate(d)}${r.archived ? ' <span class="pill work">архів</span>' : ''}</td><td><b>${esc(mgrName(r.manager_id))}</b></td><td>${storeTag(r.store_id)}</td><td class="n">${int(N(r.sales))}</td><td class="n muted">${uah(N(r.upsell_potential))}</td>
         <td class="n">${r.archived ? uah(N(r.upsell)) : `<button class="cell-edit" data-up="${r.manager_id}|${r.store_id}|${d}|${N(r.upsell)}|${N(r.upsell_auto)}|${r.adjusted ? 1 : 0}" title="${r.adjusted ? `Виправлено вручну. Автоматично: ${uah(N(r.upsell_auto))}` : 'Виправити вручну'}">${uah(N(r.upsell))}${r.adjusted ? ' ✎' : ''}${icon('edit')}</button>`}</td>
         <td class="n" style="color:var(--amber, inherit);font-weight:600">${uah(pay)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Немає даних</td></tr>'}</tbody></table></div></section>
-  <p class="muted small" style="margin-top:14px">Імена та ставки менеджерів — у Налаштуваннях. Частка від прибутку магазину (наприклад, 20% від прибутку madona) — у вкладці «Зарплата».</p>`;
+  <p class="muted small" style="margin-top:14px">Імена та ставки менеджерів — у Налаштуваннях. Частка від прибутку магазину (наприклад, 20% від прибутку madona) налаштовується у вкладці «Зарплата» (роль «Частка прибутку магазину», ім'я — як у менеджера). Вона не віднімається від прибутку, як і в старому дашборді.</p>`;
   $$('[data-up]').forEach((b) => b.addEventListener('click', async () => {
     const [mid, sid, day, cur, auto, adj] = b.dataset.up.split('|');
     const v = prompt(`Допродаж (продано), ₴ — ${mgrName(mid)}, ${fdate(day)}.\nАвтоматично з CRM: ${uah(N(auto))}.\nЗалиште порожнім, щоб повернути автоматичну суму.`, adj === '1' ? cur : '');
@@ -2224,7 +2239,7 @@ PAGES.settings = async (seq) => {
         <td class="muted small" style="max-width:460px;word-break:break-all">${esc(Object.entries(d.delivery_json || {}).filter(([k, v]) => v !== null && v !== '' && typeof v !== 'object').map(([k, v]) => k + ': ' + v).join(', ')).slice(0, 400)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Даних ще немає. Оновіть функцію синхронізації й перезавантажте період (див. інструкцію).</div>'}</div></section>
 
     <section class="card c12"><div class="card-h"><div><h2 class="card-t">Магазини</h2><div class="card-s">Кожен сайт із SalesDrive (поле «Сайт» у заявці) — окремий магазин. Нові сайти з’являються тут самі після синхронізації. Дайте їм назви; сайти, які не потрібно рахувати, вимкніть.</div></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>Сайт у SalesDrive</th><th>Назва магазину</th><th class="n">Замовлень</th><th>Рахувати у звітах</th></tr></thead><tbody>${S.stores.map((x) => { const site = (m?.sites || []).find((z) => N(z.id) === x.id); return `<tr data-shop="${x.id}"><td class="muted">#${x.id}</td><td><input type="text" data-f="name" value="${esc(x.name || '')}" placeholder="Назва" style="max-width:320px"></td><td class="n">${int(N(site?.orders))}</td><td><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-f="active" ${x.active !== false ? 'checked' : ''}>так</label></td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Магазини з’являться після першої синхронізації</td></tr>'}</tbody></table></div>
+      <div class="tw"><table class="t"><thead><tr><th>Сайт у SalesDrive</th><th>Назва магазину</th><th>Колір</th><th class="n">Замовлень</th><th>Рахувати у звітах</th></tr></thead><tbody>${S.stores.map((x) => { const site = (m?.sites || []).find((z) => N(z.id) === x.id); return `<tr data-shop="${x.id}"><td class="muted">#${x.id}</td><td><input type="text" data-f="name" value="${esc(x.name || '')}" placeholder="Назва" style="max-width:320px"></td><td><input type="color" data-f="color" value="${esc(storeColors()[x.id] || '#8a8f98')}" style="width:52px;min-height:32px;padding:2px"></td><td class="n">${int(N(site?.orders))}</td><td><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-f="active" ${x.active !== false ? 'checked' : ''}>так</label></td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Магазини з’являться після першої синхронізації</td></tr>'}</tbody></table></div>
       ${(m?.sites || []).some((z) => z.id == null) ? `<div class="hint" style="margin-top:10px">Замовлень без сайту: ${int(N((m.sites.find((z) => z.id == null) || {}).orders))}. Вони враховуються лише в режимі «Усі магазини».</div>` : ''}
       ${S.stores.length ? '<div style="margin-top:12px"><button class="btn primary" id="shopSave">Зберегти магазини</button></div>' : ''}</section>
   </div>`;
@@ -2266,7 +2281,9 @@ PAGES.settings = async (seq) => {
   }));
   $('#shopSave')?.addEventListener('click', async () => {
     try {
-      for (const tr of $$('[data-shop]')) await api.update('stores', N(tr.dataset.shop), { name: $('[data-f="name"]', tr).value.trim() || null, active: $('[data-f="active"]', tr).checked });
+      const colors = { ...storeColors() };
+      for (const tr of $$('[data-shop]')) { await api.update('stores', N(tr.dataset.shop), { name: $('[data-f="name"]', tr).value.trim() || null, active: $('[data-f="active"]', tr).checked }); colors[N(tr.dataset.shop)] = $('[data-f="color"]', tr).value; }
+      await api.setSetting('store_colors', colors); S.settings.store_colors = colors; applyStoreColors();
       S.stores = await api.list('stores'); S.data = null; toast('Магазини збережено');
     } catch (e) { toast(e.message, true); }
   });
