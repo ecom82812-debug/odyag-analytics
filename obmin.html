@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Обміни одягу</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Manrope:wght@700&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f3f4; --surface: #fff; --surface-2: #faf8f9; --line: #ebe5e8; --line-2: #ddd5da;
+  --ink: #1f1a21; --ink-2: #544a55; --ink-3: #8c8290;
+  --brand: #e9b8c9; --brand-ink: #2a1d2c; --brand-soft: #fbeef3; --plum: #2d2131; --accent: #6d4f93;
+  --good: #0e8a4a; --good-bg: #e5f5ec; --bad: #cf3a2d; --bad-bg: #fcebe9; --warn: #a86b00; --warn-bg: #fdf2d9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121014; --surface: #1b171d; --surface-2: #201b22; --line: #2f2831; --line-2: #3b333e;
+    --ink: #f5f2f5; --ink-2: #bdb3bf; --ink-3: #85798a; --brand-soft: #3a2430; --plum: #2a2130; --accent: #9a7fc0;
+    --good: #5bd08f; --good-bg: #13301f; --bad: #f28b80; --bad-bg: #3a1b18; --warn: #f1bd5b; --warn-bg: #372a10;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121014; --surface: #1b171d; --surface-2: #201b22; --line: #2f2831; --line-2: #3b333e;
+  --ink: #f5f2f5; --ink-2: #bdb3bf; --ink-3: #85798a; --brand-soft: #3a2430; --plum: #2a2130; --accent: #9a7fc0;
+  --good: #5bd08f; --good-bg: #13301f; --bad: #f28b80; --bad-bg: #3a1b18; --warn: #f1bd5b; --warn-bg: #372a10;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 "Onest", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+header { background: var(--plum); color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 5; }
+header h1 { font: 700 17px/1.2 "Manrope", sans-serif; margin: 0; flex: 1; }
+header select { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 9px; padding: 6px 8px; max-width: 150px; }
+header select option { color: #1f1a21; }
+.wrap { max-width: 640px; margin: 0 auto; padding: 14px 16px 60px; }
+.tabs { display: flex; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 14px; }
+.tabs button { flex: 1; border: 0; background: none; padding: 9px; border-radius: 9px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.tabs button.on { background: var(--brand); color: var(--brand-ink); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.card h2 { font-size: 15px; margin: 0 0 10px; }
+label.f { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--ink-2); font-weight: 500; margin-bottom: 10px; }
+input[type=text], input[type=tel], input[type=search], textarea, select.in { width: 100%; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; min-height: 44px; }
+textarea { min-height: 70px; resize: vertical; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.seg { display: flex; gap: 6px; margin-bottom: 10px; }
+.seg button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); font-weight: 600; cursor: pointer; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 11px; padding: 12px 16px; background: var(--plum); color: #fff; font-weight: 600; cursor: pointer; width: 100%; font-size: 15px; }
+.btn:disabled { opacity: .55; }
+.muted { color: var(--ink-3); } .small { font-size: 12.5px; }
+.order { border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: var(--surface-2); }
+.order.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.order .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.item { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; padding: 6px 0; border-top: 1px dashed var(--line); }
+.item:first-of-type { border-top: 0; }
+.item input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-bottom: 10px; }
+.check input { width: 20px; height: 20px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--brand-soft); color: var(--ink); white-space: nowrap; }
+.pill.good { background: var(--good-bg); color: var(--good); } .pill.warn { background: var(--warn-bg); color: var(--warn); } .pill.bad { background: var(--bad-bg); color: var(--bad); }
+.msg { border-radius: 12px; padding: 12px; margin-bottom: 12px; font-size: 14px; }
+.msg.ok { background: var(--good-bg); color: var(--good); } .msg.err { background: var(--bad-bg); color: var(--bad); }
+.ex { font-size: 13.5px; }
+.ex .t { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.ex .l { margin: 3px 0; color: var(--ink-2); }
+.ex code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; font-size: 12.5px; }
+.copy { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0 4px; font-size: 12.5px; }
+.lock { text-align: center; padding: 60px 20px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<header><h1>🔁 Обміни одягу</h1><select id="mgr" aria-label="Менеджер"><option value="">Хто ви?</option><option>Ангеліна</option><option>Єва</option><option>Вікторія</option><option>Віктор</option></select></header>
+<div class="wrap" id="app"></div>
+<script>
+(() => {
+'use strict';
+const CONFIG = { URL: 'https://qsaifketkgkkgqsroskp.supabase.co', KEY: 'sb_publishable_vIYeBa96J8MDWjECu1550w_SKZwStun' };
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const uah = (v) => Math.round(Number(v) || 0).toLocaleString('uk-UA') + ' ₴';
+const ls = { get(k, d) { try { return localStorage.getItem('obmin_' + k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem('obmin_' + k, v); } catch { /* */ } } };
+// Секретний код із посилання (#t=...). Запам'ятовуємо на цьому пристрої.
+const hashT = (location.hash.match(/t=([a-f0-9]{20,})/) || [])[1];
+if (hashT) { ls.set('t', hashT); history.replaceState(null, '', location.pathname); }
+const TOKEN = hashT || ls.get('t', '');
+const api = async (body) => {
+  const r = await fetch(CONFIG.URL + '/functions/v1/obmin', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CONFIG.KEY, 'x-form-token': TOKEN }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: 'Помилка зв’язку' }));
+  if (!r.ok || j.error) throw new Error(j.error || 'Помилка ' + r.status);
+  return j;
+};
+const S = { tab: 'new', kind: 'exchange', orders: [], order: null, picked: new Set(), msg: null };
+$('#mgr').value = ls.get('mgr', '');
+$('#mgr').addEventListener('change', (e) => ls.set('mgr', e.target.value));
+
+function view() {
+  if (!TOKEN) { $('#app').innerHTML = '<div class="lock">🔒 Відкрийте цю сторінку за посиланням, яке дав керівник.</div>'; return; }
+  $('#app').innerHTML = `<div class="tabs"><button data-t="new" class="${S.tab === 'new' ? 'on' : ''}">Новий обмін</button><button data-t="find" class="${S.tab === 'find' ? 'on' : ''}">Знайти / статус</button></div><div id="body"></div>`;
+  $('.tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (b) { S.tab = b.dataset.t; view(); } });
+  S.tab === 'new' ? viewNew() : viewFind();
+}
+
+// ---------------- новий обмін ----------------
+function viewNew() {
+  const o = S.order;
+  $('#body').innerHTML = `
+    ${S.msg ? `<div class="msg ${S.msg.ok ? 'ok' : 'err'}">${esc(S.msg.text)}</div>` : ''}
+    <div class="card"><h2>1. Клієнт</h2>
+      <label class="f">Телефон клієнта<input type="tel" id="phone" placeholder="0675073043" autocomplete="off" value="${esc(S.phone || '')}"></label>
+      <div id="orders">${S.orders.length ? S.orders.map((x, i) => `<div class="order ${o && o.id === x.id ? 'on' : ''}" data-o="${i}">
+        <div class="top"><b>#${x.id} · ${esc(x.client_name || '—')}</b><span class="muted">${esc(String(x.order_time || '').slice(0, 10).split('-').reverse().join('.'))}</span></div>
+        <div class="small muted">${esc(x.store || '')}${x.status ? ' · ' + esc(x.status) : ''}${x.ttn ? ' · ТТН ' + esc(x.ttn) : ''} · ${uah(x.payment_amount)}</div>
+        ${o && o.id === x.id ? `<div style="margin-top:6px">${(x.items || []).map((it, j) => `<label class="item"><input type="checkbox" data-it="${j}" ${S.picked.has(j) ? 'checked' : ''}><span>${esc(it.sku || '')} ${esc(it.name || '')}${it.descr ? ` <span class="muted">(${esc(it.descr)})</span>` : ''} · ${uah(it.price)}</span></label>`).join('') || '<div class="small muted">Товари не знайдено</div>'}<div class="small muted" style="margin-top:4px">Позначте, що клієнт повертає</div></div>` : ''}
+      </div>`).join('') : (S.searched ? '<div class="small muted">Замовлень за цим номером не знайдено — заповніть вручну нижче.</div>' : '<div class="small muted">Введіть номер — знайдемо замовлення в CRM.</div>')}</div>
+      ${!o ? `<div class="row2"><label class="f">Прізвище, ім'я<input type="text" id="cname" value="${esc(S.cname || '')}"></label><label class="f">ТТН замовлення<input type="text" id="ottn" inputmode="numeric" value="${esc(S.ottn || '')}"></label></div>
+      <label class="f">Товар, що повертають<input type="text" id="itemsTxt" placeholder="а4/66 чорний L-XL" value="${esc(S.itemsTxt || '')}"></label>` : ''}
+    </div>
+    <div class="card"><h2>2. Що робимо</h2>
+      <div class="seg"><button data-k="exchange" class="${S.kind === 'exchange' ? 'on' : ''}">🔄 Обмін</button><button data-k="refund" class="${S.kind === 'refund' ? 'on' : ''}">💸 Повернення коштів</button></div>
+      ${S.kind === 'exchange'
+        ? `<label class="f">На що міняємо<input type="text" id="newItem" placeholder="0039/46 сірий S-M" value="${esc(S.newItem || '')}"></label>`
+        : `<div class="row2"><label class="f">Сума повернення, ₴<input type="text" id="refund" inputmode="decimal" value="${esc(S.refund ?? '')}"></label><label class="f">Карта клієнта<input type="text" id="card" inputmode="numeric" placeholder="4441 …" value="${esc(S.card || '')}"></label></div>`}
+      <label class="f">Причина<input type="text" id="reason" placeholder="не підійшов розмір" value="${esc(S.reason || '')}"></label>
+    </div>
+    <div class="card"><h2>3. Посилка</h2>
+      <label class="f">ТТН повернення від клієнта<input type="text" id="retTtn" inputmode="numeric" placeholder="20451545520251" value="${esc(S.retTtn || '')}"></label>
+      <label class="check"><input type="checkbox" id="dPaid" ${S.dPaid ? 'checked' : ''}>Клієнт оплатила доставку (повертаємо)</label>
+      ${S.dPaid ? `<label class="f">Скільки повернути за доставку, ₴<input type="text" id="dRef" inputmode="decimal" placeholder="80" value="${esc(S.dRef || '')}"></label>` : ''}
+      <label class="f">Коментар<textarea id="comment" placeholder="Необов'язково">${esc(S.comment || '')}</textarea></label>
+      <button class="btn" id="send">Надіслати</button>
+    </div>`;
+  const keep = () => { for (const [k, id] of [['cname', 'cname'], ['ottn', 'ottn'], ['itemsTxt', 'itemsTxt'], ['newItem', 'newItem'], ['refund', 'refund'], ['card', 'card'], ['reason', 'reason'], ['retTtn', 'retTtn'], ['dRef', 'dRef'], ['comment', 'comment']]) { const el = $('#' + id); if (el) S[k] = el.value; } S.dPaid = !!$('#dPaid')?.checked; };
+  let pt;
+  $('#phone').addEventListener('input', (e) => {
+    S.phone = e.target.value; clearTimeout(pt);
+    if (digits(S.phone).length >= 10) pt = setTimeout(async () => {
+      keep();
+      try { const r = await api({ action: 'lookup', phone: S.phone }); S.orders = r.orders || []; S.searched = true; S.order = S.orders[0] || null; S.picked = new Set(); if (S.order && S.order.items?.length === 1) S.picked.add(0); autoRefund(); viewNew(); const p = $('#phone'); p.focus(); p.setSelectionRange(p.value.length, p.value.length); }
+      catch (err) { S.msg = { ok: false, text: err.message }; viewNew(); }
+    }, 400);
+  });
+  $('#orders').addEventListener('click', (e) => {
+    if (e.target.closest('[data-it]')) { const j = Number(e.target.closest('[data-it]').dataset.it); keep(); if (e.target.checked) S.picked.add(j); else S.picked.delete(j); autoRefund(); viewNew(); return; }
+    const c = e.target.closest('[data-o]'); if (!c) return; keep(); const x = S.orders[Number(c.dataset.o)]; if (S.order?.id !== x.id) { S.order = x; S.picked = new Set(x.items?.length === 1 ? [0] : []); autoRefund(); } viewNew();
+  });
+  document.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => { keep(); S.kind = b.dataset.k; autoRefund(); viewNew(); }));
+  $('#dPaid').addEventListener('change', () => { keep(); viewNew(); });
+  $('#send').addEventListener('click', send);
+}
+function autoRefund() {
+  if (S.kind !== 'refund' || !S.order) return;
+  const sum = [...S.picked].reduce((a, j) => a + (Number(S.order.items[j]?.price) || 0) * (Number(S.order.items[j]?.amount) || 1), 0);
+  if (sum) S.refund = String(sum);
+}
+async function send() {
+  const g = (id) => $('#' + id)?.value?.trim() || '';
+  const mgr = $('#mgr').value;
+  if (!mgr) { S.msg = { ok: false, text: 'Оберіть угорі, хто ви (менеджер)' }; return viewNew(); }
+  const o = S.order;
+  const its = o ? [...S.picked].map((j) => o.items[j]).filter(Boolean) : [];
+  const body = {
+    action: 'create', manager: mgr, phone: S.phone, kind: S.kind,
+    order_id: o?.id || null, client_name: o ? o.client_name : g('cname'), store_id: o?.sajt || null, order_ttn: o ? o.ttn : g('ottn'),
+    items: o ? its.map((it) => `${it.sku || ''} ${it.descr || it.name || ''}`.trim()).join('; ') : g('itemsTxt'),
+    cost_price: its.reduce((a, it) => a + (Number(it.cost_price) || 0) * (Number(it.amount) || 1), 0) || null,
+    new_item: g('newItem'), refund_amount: g('refund'), card: g('card'), reason: g('reason'),
+    ret_ttn: g('retTtn'), delivery_paid: !!$('#dPaid')?.checked, delivery_refund: g('dRef'), comment: g('comment'),
+  };
+  if (o && o.items?.length && !its.length) { S.msg = { ok: false, text: 'Позначте товар, який повертають' }; return viewNew(); }
+  const b = $('#send'); b.disabled = true; b.textContent = 'Надсилаю…';
+  try {
+    const r = await api(body);
+    Object.assign(S, { orders: [], order: null, picked: new Set(), phone: '', cname: '', ottn: '', itemsTxt: '', newItem: '', refund: '', card: '', reason: '', retTtn: '', dPaid: false, dRef: '', comment: '', searched: false });
+    S.msg = { ok: true, text: `✅ Обмін №${r.id} створено й надіслано в Telegram` };
+    viewNew(); scrollTo(0, 0);
+  } catch (err) { S.msg = { ok: false, text: err.message }; viewNew(); }
+}
+
+// ---------------- пошук ----------------
+function viewFind() {
+  $('#body').innerHTML = `<div class="card"><label class="f">Телефон, ТТН або прізвище<input type="search" id="q" placeholder="0675073043" value="${esc(S.q || '')}"></label><div class="small muted">Порожньо — останні обміни</div></div><div id="res"><div class="muted small">Завантаження…</div></div>`;
+  let qt; $('#q').addEventListener('input', (e) => { S.q = e.target.value; clearTimeout(qt); qt = setTimeout(find, 450); });
+  find();
+}
+const stCls = (s) => (['closed', 'shipped', 'refunded'].includes(s) ? 'good' : s === 'cancelled' ? 'bad' : s === 'new' ? 'warn' : '');
+async function find() {
+  try {
+    const r = await api({ action: 'list', q: S.q || '' });
+    $('#res').innerHTML = (r.list || []).map((x) => `<div class="card ex">
+      <div class="t"><b>${x.kind === 'refund' ? '💸 Повернення' : '🔄 Обмін'} №${x.id}</b><span class="pill ${stCls(x.status)}">${esc(x.status_label)}</span></div>
+      <div class="l">👤 <b>${esc(x.client_name || '—')}</b> · ${esc(x.phone || '')}${x.store ? ' · ' + esc(x.store) : ''}</div>
+      ${x.items ? `<div class="l">Товар: ${esc(x.items)}</div>` : ''}
+      <div class="l">↩️ ТТН повернення: <code>${esc(x.ret_ttn || '—')}</code> <button class="copy" data-copy="${esc(x.ret_ttn || '')}">копіювати</button>${x.np_status ? `<br><span class="small">${esc(x.np_status)}</span>` : ''}</div>
+      ${x.kind === 'refund' ? `<div class="l">💳 Повернути: ${x.refund_amount ? uah(x.refund_amount) : 'уточнюється'}</div>` : `<div class="l">🔄 Обмін на: <b>${esc(x.new_item || '—')}</b></div>`}
+      ${x.new_ttn ? `<div class="l">📦 ТТН обміну: <code>${esc(x.new_ttn)}</code> <button class="copy" data-copy="${esc(x.new_ttn)}">копіювати</button>${x.np_new_status ? `<br><span class="small">${esc(x.np_new_status)}</span>` : ''}</div>` : ''}
+      ${x.delivery_paid ? `<div class="l">🚚 Доставку оплатила${x.delivery_refund ? `, повернути ${uah(x.delivery_refund)}` : ''}</div>` : ''}
+      ${x.comment ? `<div class="l">💬 ${esc(x.comment)}</div>` : ''}
+      <div class="small muted">${esc(x.manager || '')} · ${new Date(x.created_at).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+    </div>`).join('') || '<div class="card muted">Нічого не знайдено</div>';
+    document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'скопійовано ✓'; } catch { /* */ } }));
+  } catch (err) { $('#res').innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+}
+view();
+})();
+</script>
+</body>
+</html>

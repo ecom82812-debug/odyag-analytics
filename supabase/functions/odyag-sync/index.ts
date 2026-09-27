@@ -98,6 +98,15 @@ function clientName(o: any): string | null {
   return n || null
 }
 
+// Телефон клієнта — лише цифри (для пошуку замовлення у формі обмінів)
+function clientPhone(o: any): string | null {
+  const c = o.primaryContact || (Array.isArray(o.contacts) ? o.contacts[0] : null)
+  const p = c?.phone
+  const v = Array.isArray(p) ? p[0] : p
+  const d = String((typeof v === "object" && v ? (v.phone || v.value) : v) ?? "").replace(/\D/g, "")
+  return d.length >= 9 ? d : null
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   const started = Date.now()
@@ -230,6 +239,7 @@ Deno.serve(async (req) => {
         payment_method: pmRaw ? (payMethods[pmRaw] || pmRaw) : null,
         comment: o.comment ? String(o.comment) : null,
         client_name: clientName(o),
+        client_phone: clientPhone(o),
         external_id: o.externalId ? String(o.externalId) : null,
         ttn: dl?.trackingNumber ? String(dl.trackingNumber) : null,
         delivery_cost: deliveryCost(dl),
@@ -242,6 +252,7 @@ Deno.serve(async (req) => {
         order_id: Number(o.id), pos, product_id: Number(p.productId) || null,
         name: p.text || p.documentName || "Без назви", sku: p.sku || "",
         amount: num(p.amount) || 1, price: num(p.price), cost_price: num(p.costPrice), pre_sale: isUpsell(p),
+        descr: p.description ? String(p.description).trim().replace(/\s*\n\s*/g, ", ") : null,
       }))
     }
     if (!rows.length) return 0
