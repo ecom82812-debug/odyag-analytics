@@ -90,6 +90,14 @@ function guessConfirmed(name = "", category = "work"): boolean {
   return /підтвер|подтвер|відправ|отправ|упак|збира|собира|комплект|в дороз|в пути|доставл|на пошт|прибу|оплач|передан/i.test(name)
 }
 
+// Ім'я клієнта (прізвище + ім'я) — щоб знайти оплату у виписці банку
+function clientName(o: any): string | null {
+  const c = o.primaryContact || (Array.isArray(o.contacts) ? o.contacts[0] : null)
+  if (!c || typeof c !== "object") return null
+  const n = [c.lName, c.fName, c.mName].filter((x) => x && String(x).trim()).join(" ").trim()
+  return n || null
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   const started = Date.now()
@@ -221,6 +229,7 @@ Deno.serve(async (req) => {
         manager_id: Number(o.userId) || null,
         payment_method: pmRaw ? (payMethods[pmRaw] || pmRaw) : null,
         comment: o.comment ? String(o.comment) : null,
+        client_name: clientName(o),
         external_id: o.externalId ? String(o.externalId) : null,
         ttn: dl?.trackingNumber ? String(dl.trackingNumber) : null,
         delivery_cost: deliveryCost(dl),

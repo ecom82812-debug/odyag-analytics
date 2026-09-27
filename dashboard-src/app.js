@@ -368,7 +368,7 @@ async function loadPeriod(force = false) {
 function shell() {
   const nav = [
     ['Аналітика', [['overview', 'Огляд', 'home'], ['stores', 'Магазини', 'shop'], ['days', 'По днях', 'days'], ['months', 'По місяцях', 'months'], ['products', 'Товари', 'box'], ['ads', 'Реклама', 'ads'], ['managers', 'Менеджери', 'users']]],
-    ['Облік', [['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
+    ['Облік', [['payments', 'Оплати на рахунок', 'check'], ['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
     ['Система', [['settings', 'Налаштування', 'gear']]],
   ];
   $('#app').innerHTML = `
@@ -440,6 +440,7 @@ const TITLES = {
   managers: ['Менеджери', 'Продажі, конверсія і зарплата'],
   expenses: ['Витрати', 'Реклама, податки, SMS та інші витрати'],
   salary: ['Зарплата', 'Виплати власникам і команді'],
+  payments: ['Оплати на рахунок', 'Повні оплати й передоплати з CRM — для звірки з банком'],
   fop: ['ФОП і податки', 'Податки кожного ФОПа й контроль річного ліміту'],
   settings: ['Налаштування', 'Синхронізація, статуси, курси валют'],
 };
@@ -1363,6 +1364,60 @@ PAGES.salary = async (seq) => {
     for (const k of ['name', 'role', 'pay_kind', 'value', 'store_id']) if (hf[k]) hf[k].value = p[k] ?? '';
     hf.active.checked = p.active !== false; hf.dataset.id = p.id; $('#personSubmit').textContent = 'Зберегти'; $('#personCancel').hidden = false; hf.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
+};
+
+// ================================================================ ОПЛАТИ НА РАХУНОК (звірка з банком)
+PAGES.payments = async (seq) => {
+  const [list, manualAll] = await Promise.all([api.rpc('card_orders', { p_from: S.from, p_to: S.to, p_store: S.store }), api.rows('daily_manual').catch(() => [])]);
+  if (seq !== renderSeq) return;
+  const arch = String(S.settings.archive_until || '').replace(/"/g, '');
+  const manual = (manualAll || []).map((r) => ({ ...r, day: String(r.day).slice(0, 10) }))
+    .filter((r) => N(r.card_payments) !== 0 && r.day >= S.from && r.day <= S.to && (S.store == null ? activeStores().some((x) => x.id === N(r.store_id)) : N(r.store_id) === S.store));
+  const rows = (list || []).map((r) => ({ ...r, d: String(r.order_date).slice(0, 10), t: String(r.order_time || '').slice(11, 16), amount: N(r.amount), payment_amount: N(r.payment_amount) }));
+  const f = S.payF || 'all', kindF = S.payKind || 'all', q = (S.payQ || '').trim().toLowerCase();
+  const shown = rows.filter((r) => (f === 'all' || (f === 'open' ? !r.checked : r.checked)) && (kindF === 'all' || r.kind === kindF)
+    && (!q || String(r.id).includes(q) || (r.client_name || '').toLowerCase().includes(q) || (r.comment || '').toLowerCase().includes(q) || String(r.amount).includes(q)));
+  const sum = (a) => a.reduce((s, r) => s + r.amount, 0);
+  const full = rows.filter((r) => r.kind === 'full'), pp = rows.filter((r) => r.kind === 'pp'), done = rows.filter((r) => r.checked);
+  const manSum = manual.filter((r) => r.day > arch).reduce((s, r) => s + N(r.card_payments), 0);
+  const archSum = manual.filter((r) => r.day <= arch).reduce((s, r) => s + N(r.card_payments), 0);
+  const byDay = new Map(); for (const r of shown) { if (!byDay.has(r.d)) byDay.set(r.d, []); byDay.get(r.d).push(r); }
+  const kindTag = (r) => (r.kind === 'full' ? '<span class="pill success">повна оплата</span>' : `<span class="pill work">ПП${r.category === 'fail' ? ' · відмова' : ''}</span>`);
+  $('#page').innerHTML = `
+  <div class="kpis">
+    <div class="kpi hero"><div class="kpi-l"><span>Оплати на рахунок</span></div><div class="kpi-v">${uah(sum(rows) + manSum + archSum)}</div><div class="kpi-s">${int(rows.length)} замовлень із CRM${manSum ? ` · ручні корекції ${uah(manSum)}` : ''}${archSum ? ` · до ${fdate(arch)} — ${uah(archSum)} зі старого дашборду` : ''}</div></div>
+    ${kpi('Повні оплати', uah(sum(full)), `${int(full.length)} замовлень`)}
+    ${kpi('Передоплати (ПП)', uah(sum(pp)), `${int(pp.length)} замовлень${pp.some((r) => r.category === 'fail') ? ` · з них у відмовах ${uah(sum(pp.filter((r) => r.category === 'fail')))}` : ''}`)}
+    ${kpi('Знайдено в банку', `${int(done.length)} <span class="muted" style="font-size:14px">з ${int(rows.length)}</span>`, rows.length - done.length ? `<span class="warn-t">ще не звірено ${uah(sum(rows) - sum(done))}</span>` : 'усе звірено')}
+  </div>
+  <section class="card">
+    <div class="card-h"><div><h2 class="card-t">Оплати для звірки з банком</h2><div class="card-s">Із коментарів у CRM: «повна оплата» → уся сума; «ПП150» → 150 ₴. Позитивні статуси + передоплати у відмовах. Поставте галочку, коли знайшли платіж у банку.</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="seg" id="payF">${[['all', 'Усі'], ['open', 'Не звірені'], ['done', 'Звірені']].map(([k, t]) => `<button data-f="${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <div class="seg" id="payK">${[['all', 'Усі типи'], ['full', 'Повна'], ['pp', 'ПП']].map(([k, t]) => `<button data-k="${k}" class="${kindF === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <input type="text" id="payQ" placeholder="Пошук: ім'я, №, сума" value="${esc(S.payQ || '')}" style="max-width:200px">
+        <button class="btn sm" id="payCsv">${icon('dl')}CSV</button>
+      </div></div>
+    <div class="tw tbl-scroll" style="max-height:none"><table class="t"><thead><tr><th style="width:34px" title="Знайдено в банку">✓</th><th>Час</th><th>Заявка</th><th>Клієнт</th><th>Магазин</th><th>Менеджер</th><th>Статус</th><th>Тип</th><th class="n">Сума замовлення</th><th class="n">На рахунок</th><th>Коментар</th></tr></thead>
+    <tbody>${[...byDay.entries()].map(([d, list]) => `<tr class="grp"><td colspan="9" style="background:var(--surface-2)"><b>${fdate(d)}</b> <span class="muted small">${['нд', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'][P(d).getUTCDay()]} · ${int(list.length)} опл.${list.some((r) => !r.checked) ? ` · не звірено ${int(list.filter((r) => !r.checked).length)}` : ' · усе звірено ✓'}</span></td><td class="n" style="background:var(--surface-2)"><b>${uah(sum(list))}</b></td><td style="background:var(--surface-2)"></td></tr>` +
+      list.map((r) => `<tr class="${r.checked ? 'muted' : ''}"><td><input type="checkbox" data-chk="${r.id}" ${r.checked ? 'checked' : ''} title="${r.checked ? `звірено ${esc((r.checked_by || '').split('@')[0])} ${fdt(r.checked_at)}` : 'Позначити: платіж знайдено в банку'}" style="width:18px;height:18px;min-height:0"></td>
+        <td class="muted small">${esc(r.t)}</td><td>#${esc(r.id)}</td><td><b>${esc(r.client_name || '—')}</b></td><td>${r.sajt == null ? '<span class="muted small">без сайту</span>' : storeTag(r.sajt)}</td><td class="small">${esc(mgrName(r.manager_id))}</td>
+        <td class="small">${esc(r.status)}</td><td>${kindTag(r)}</td><td class="n">${uah(r.payment_amount)}</td><td class="n"><b>${uah(r.amount)}</b></td>
+        <td class="muted small" style="max-width:320px" title="${esc(r.comment || '')}">${esc(String(r.comment || '').replace(/\s+/g, ' ').slice(0, 90))}</td></tr>`).join('')).join('') || '<tr><td colspan="11" class="empty">За період оплат на рахунок немає</td></tr>'}</tbody>
+    <tfoot><tr><td colspan="9">Разом показано: ${int(shown.length)}</td><td class="n">${uah(sum(shown))}</td><td></td></tr></tfoot></table></div>
+  </section>
+  ${manual.length ? `<section class="card" style="margin-top:14px"><div class="card-h"><div><h2 class="card-t">Внесено вручну</h2><div class="card-s">${archSum ? `До ${fdate(arch)} — суми зі старого дашборду. ` : ''}Після — ручні корекції з клітинки «Оплати на рахунок» у таблиці «По днях».</div></div></div>
+    <div class="tw"><table class="t"><thead><tr><th>Дата</th><th>Магазин</th><th class="n">Сума</th><th>Хто</th></tr></thead><tbody>${manual.sort((a, b) => b.day.localeCompare(a.day)).map((r) => `<tr><td>${fdate(r.day)}</td><td>${storeTag(r.store_id)}</td><td class="n">${uah(N(r.card_payments))}</td><td class="muted small">${esc(r.updated_by === 'import' ? 'старий дашборд' : String(r.updated_by || '').split('@')[0])}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+  $('#payF').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (b) { S.payF = b.dataset.f; render(); } });
+  $('#payK').addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b) { S.payKind = b.dataset.k; render(); } });
+  let qt; $('#payQ').addEventListener('input', (e) => { clearTimeout(qt); qt = setTimeout(() => { S.payQ = e.target.value; render().then(() => { const i = $('#payQ'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 350); });
+  $$('[data-chk]').forEach((cb) => cb.addEventListener('change', async () => {
+    const id = N(cb.dataset.chk); cb.disabled = true;
+    try { if (cb.checked) await api.upsert('card_checks', { order_id: id, checked: true, checked_at: new Date().toISOString() }, 'order_id'); else await api.removeWhere('card_checks', { order_id: id }); render(); }
+    catch (err) { toast(err.message, true); cb.checked = !cb.checked; cb.disabled = false; }
+  }));
+  $('#payCsv').addEventListener('click', () => downloadCsv(`oplaty_${S.from}_${S.to}.csv`, ['Дата', 'Час', 'Заявка', 'Клієнт', 'Магазин', 'Менеджер', 'Статус', 'Тип', 'Сума замовлення', 'На рахунок', 'Звірено', 'Коментар'],
+    shown.map((r) => [r.d, r.t, r.id, r.client_name || '', r.sajt == null ? 'без сайту' : storeLabel(r.sajt), mgrName(r.manager_id), r.status, r.kind === 'full' ? 'повна оплата' : 'ПП', r.payment_amount, r.amount, r.checked ? 'так' : '', String(r.comment || '').replace(/\s+/g, ' ')])));
 };
 
 // ================================================================ ФОП І ПОДАТКИ
