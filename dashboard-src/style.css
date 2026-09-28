@@ -397,9 +397,12 @@ tr.shared td b { color: var(--ink-3); }
 .sh-lg .lg-f { background: color-mix(in srgb, var(--s1) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--s1) 45%, var(--line)); }
 .sh-lg .lg-p { border: 1px dashed var(--ink-3); }
 .sh-lg .lg-s { background: linear-gradient(135deg, color-mix(in srgb, var(--s2) 25%, var(--surface)) 50%, color-mix(in srgb, var(--s1) 25%, var(--surface)) 50%); }
-.sh-pl { padding: 2px 8px; }
-.sh-pl .stat-row span { display: flex; align-items: center; gap: 6px; }
+.sh-pl { padding: 2px 8px 4px; display: flex; flex-direction: column; gap: 8px; }
+.sh-pr > div:first-child { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.sh-pr > div:first-child span { margin-left: auto; font-weight: 600; }
+.sh-pr .small { padding-left: 15px; }
+.sh-nm .short { display: none; }
 @media (max-width: 700px) {
   .sh-grid { gap: 3px; } .sh-d { min-height: 58px; padding: 4px 5px; border-radius: 8px; }
-  .sh-h, .sh-s { display: none; } .sh-nm { font-size: 11px; }
+  .sh-h, .sh-s { display: none; } .sh-nm { font-size: 11px; } .sh-nm .full { display: none; } .sh-nm .short { display: inline; }
 }

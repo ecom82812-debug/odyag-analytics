@@ -409,11 +409,14 @@ tr.shared td b { color: var(--ink-3); }
 .sh-lg .lg-f { background: color-mix(in srgb, var(--s1) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--s1) 45%, var(--line)); }
 .sh-lg .lg-p { border: 1px dashed var(--ink-3); }
 .sh-lg .lg-s { background: linear-gradient(135deg, color-mix(in srgb, var(--s2) 25%, var(--surface)) 50%, color-mix(in srgb, var(--s1) 25%, var(--surface)) 50%); }
-.sh-pl { padding: 2px 8px; }
-.sh-pl .stat-row span { display: flex; align-items: center; gap: 6px; }
+.sh-pl { padding: 2px 8px 4px; display: flex; flex-direction: column; gap: 8px; }
+.sh-pr > div:first-child { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.sh-pr > div:first-child span { margin-left: auto; font-weight: 600; }
+.sh-pr .small { padding-left: 15px; }
+.sh-nm .short { display: none; }
 @media (max-width: 700px) {
   .sh-grid { gap: 3px; } .sh-d { min-height: 58px; padding: 4px 5px; border-radius: 8px; }
-  .sh-h, .sh-s { display: none; } .sh-nm { font-size: 11px; }
+  .sh-h, .sh-s { display: none; } .sh-nm { font-size: 11px; } .sh-nm .full { display: none; } .sh-nm .short { display: inline; }
 }
 
 </style>
@@ -1837,7 +1840,7 @@ async function shiftCalendar(box) {
     let kind, ids, p = null;
     if (d < today || (d === today && w.length)) { kind = 'fact'; ids = w; }
     else { kind = 'plan'; p = planned(d); ids = p && p.id != null ? [p.id] : []; }
-    if (kind === 'fact') { for (const id of ids) { add(id, 'shifts'); if (!rot.includes(id)) add(id, 'subs'); } for (const r of rs) add(N(r.manager_id), 'orders', N(r.orders)); }
+    if (kind === 'fact') { for (const id of ids) { add(id, 'shifts'); add(id, 'orders', N((rs.find((r) => N(r.manager_id) === id) || {}).orders)); if (!rot.includes(id)) add(id, 'subs'); } }
     else if (ids.length) add(ids[0], 'planned');
     cells.push({ d, kind, ids, rs, manual: p?.manual, off: kind === 'plan' && p && p.id == null, todayNoFact });
   }
@@ -1846,15 +1849,16 @@ async function shiftCalendar(box) {
     const cls = ['sh-d', c.kind, c.d === today ? 'today' : '', c.ids.length > 1 ? 'split' : ''].join(' ');
     const col = c.ids.map(mgrColor);
     const style = col.length === 1 ? `--c:${col[0]}` : col.length > 1 ? `--c:${col[0]};--c2:${col[1]}` : '';
-    const names = c.ids.map((id) => esc(mgrName(id))).join(c.ids.length > 1 ? ' + ' : '');
+    const ord = c.ids.length > 1 ? [...c.ids].sort((a, b) => (rot.includes(b) ? 1 : 0) - (rot.includes(a) ? 1 : 0)) : c.ids;
+    const names = ord.map((id) => { const n = mgrName(id); return ord.length > 1 && n.length > 6 ? n.slice(0, 3) + '.' : n; }).map(esc).join(' + ');
     const inH = (id) => N((c.rs.find((r) => N(r.manager_id) === id) || {}).orders);
     const sub = c.kind === 'fact' ? (c.ids.length ? `${int(c.ids.reduce((s, id) => s + inH(id), 0))} замовл.` : (c.rs.length ? 'мало даних' : 'немає замовлень'))
       : c.off ? 'вихідний' : c.ids.length ? (c.manual ? 'відмічено' : 'план 2/2') : '';
     const subst = c.kind === 'fact' && c.ids.some((id) => !rot.includes(id));
     return `<button class="${cls}" style="${style}" data-shd="${c.d}"><span class="sh-n">${day}${c.manual ? ' <i class="sh-pin" title="Відмічено вручну"></i>' : ''}</span>
-      <span class="sh-nm">${names || (c.off ? '—' : '')}</span><span class="sh-s">${subst ? '<b>підміна</b> · ' : ''}${sub}</span><span class="sh-h">${h1}–${h2}</span></button>`;
+      <span class="sh-nm"><span class="full">${names || (c.off ? '—' : '')}</span><span class="short">${ord.map((id) => esc(mgrName(id).slice(0, 3))).join('+') || (c.off ? '—' : '')}</span></span><span class="sh-s">${subst ? '<b>підміна</b> · ' : ''}${sub}</span><span class="sh-h">${h1}–${h2}</span></button>`;
   };
-  const mgrIds = [...new Set([...rot, ...Object.keys(sum).map(N)])].filter((id) => sum[id] || rot.includes(id));
+  const mgrIds = [...new Set([...rot, ...Object.keys(sum).map(N)])].filter((id) => rot.includes(id) || (sum[id] && (sum[id].shifts || sum[id].planned)));
   box.innerHTML = `<section class="card shift-card">
     <div class="card-h"><div><h2 class="card-t">Графік змін</h2><div class="card-s">Хто працював — з CRM (замовлення в робочі години). Майбутні дні — план 2/2, натисніть на день, щоб змінити.</div></div>
       <div class="sh-nav"><button class="icon-btn" data-shm="-1" title="Попередній місяць">‹</button><b>${MON_FULL[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</b><button class="icon-btn" data-shm="1" title="Наступний місяць">›</button></div></div>
@@ -1877,7 +1881,7 @@ function openShiftDay(btn, c, box) {
   const rs = [...c.rs].sort((a, b) => N(b.in_hours) - N(a.in_hours));
   const dow = ['неділя', 'понеділок', 'вівторок', 'середа', 'четвер', "п'ятниця", 'субота'][P(c.d).getUTCDay()];
   pop.innerHTML = `<div style="padding:6px 8px 4px"><div style="font-weight:650">${fdate(c.d)}, ${dow}</div><div class="muted small">Робочий час ${shiftHours(c.d).join('–')}</div></div>
-    ${rs.length ? `<div class="sh-pl">${rs.map((r) => `<div class="stat-row"><span><i class="sdot" style="background:${mgrColor(r.manager_id)}"></i>${esc(mgrName(r.manager_id))}</span><b>${int(N(r.orders))}${r.archived ? '' : ` <span class="muted small">(${int(N(r.in_hours))} у зміну${r.first_t ? `, ${String(r.first_t).slice(0, 5)}–${String(r.last_t).slice(0, 5)}` : ''})</span>`}</b></div>`).join('')}</div>` : `<div class="muted small" style="padding:4px 8px">${c.kind === 'fact' ? 'Замовлень цього дня немає' : 'Замовлень ще немає'}</div>`}
+    ${rs.length ? `<div class="sh-pl">${rs.map((r) => `<div class="sh-pr"><div><i class="sdot" style="background:${mgrColor(r.manager_id)}"></i><b>${esc(mgrName(r.manager_id))}</b><span>${int(N(r.orders))} замовл.</span></div>${r.archived ? '' : `<div class="muted small">${int(N(r.in_hours))} у робочий час${r.first_t ? ` · перше ${String(r.first_t).slice(0, 5)}, останнє ${String(r.last_t).slice(0, 5)}` : ''}</div>`}</div>`).join('')}</div>` : `<div class="muted small" style="padding:4px 8px">${c.kind === 'fact' ? 'Замовлень цього дня немає' : 'Замовлень ще немає'}</div>`}
     ${editable ? `<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px"><div class="muted small" style="padding:4px 8px">Хто працює цього дня?</div>
       ${S.managers.filter((m) => m.active !== false).map((m) => `<button class="row ${c.ids[0] === m.id && c.manual ? 'on' : ''}" data-shset="${m.id}"><span><i class="sdot" style="background:${mgrColor(m.id)}"></i>${esc(m.name || 'Менеджер #' + m.id)}</span></button>`).join('')}
       <button class="row ${c.off ? 'on' : ''}" data-shset="off"><span>Вихідний (нікого)</span></button>
