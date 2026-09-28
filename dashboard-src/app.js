@@ -1090,15 +1090,18 @@ async function shiftCalendar(box) {
   const rot = (Array.isArray(S.settings.shift_rotation) ? S.settings.shift_rotation : [4, 5]).map(N);
   const fact = (d) => (d <= today && byDay[d] ? whoWorked(byDay[d]) : []);
   // Опора для 2/2: остання фактична зміна до сьогодні, де працювала людина з ротації
-  let anchor = null, anchorId = null, streak = 0;
-  for (let d = addDays(today, -1); d >= lookFrom; d = addDays(d, -1)) { const w = fact(d); if (w.length && rot.includes(w[0])) { anchor = d; anchorId = w[0]; break; } }
-  if (anchor) { for (let d = anchor; d >= lookFrom && fact(d)[0] === anchorId; d = addDays(d, -1)) streak++; }
-  const planned = (d) => {
-    if (d in planMap) return { id: planMap[d], manual: true };
-    if (!anchor || rot.length < 2) return null;
-    const k = daysBetween(anchor, d) + Math.min(streak, 2) - 1; // позиція в циклі 2/2
-    const idx = rot.indexOf(anchorId); return { id: rot[(idx + Math.floor(k / 2)) % rot.length], manual: false };
-  };
+  // Проходимо дні по черзі: факт з CRM і ручні відмітки задають, хто на зміні; решта — продовження 2/2 від останньої зміни.
+  // Якщо хтось відпрацював 3-й день або вийшов на 1 день — цикл 2/2 перераховується саме від цього місця.
+  const isFact = (d) => d < today || (d === today && fact(d).length > 0);
+  const proj = {}; let cur = null, streak = 0;
+  const step = () => { if (cur == null || rot.length < 2) return; if (streak >= 2) { cur = rot[(rot.indexOf(cur) + 1) % rot.length]; streak = 1; } else streak++; };
+  const setTo = (id) => { streak = id === cur ? streak + 1 : 1; cur = id; };
+  for (let d = lookFrom; d <= last; d = addDays(d, 1)) {
+    if (isFact(d)) { const w = fact(d); const r = w.find((id) => rot.includes(id)); if (r != null) setTo(r); else if (w.length) step(); continue; }
+    if (d in planMap) { const m = planMap[d]; if (m != null && rot.includes(m)) setTo(m); else if (m != null) step(); proj[d] = { id: m, manual: true }; continue; }
+    step(); proj[d] = cur == null ? null : { id: cur, manual: false };
+  }
+  const planned = (d) => proj[d] || null;
   const cells = []; const lead = (P(from).getUTCDay() + 6) % 7;
   const sum = {}; const add = (id, k, v = 1) => { (sum[id] = sum[id] || { shifts: 0, orders: 0, planned: 0, subs: 0 })[k] += v; };
   for (let i = 0; i < dim(from); i++) {
