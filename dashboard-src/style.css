@@ -406,3 +406,5 @@ tr.shared td b { color: var(--ink-3); }
   .sh-grid { gap: 3px; } .sh-d { min-height: 58px; padding: 4px 5px; border-radius: 8px; }
   .sh-h, .sh-s { display: none; } .sh-nm { font-size: 11px; } .sh-nm .full { display: none; } .sh-nm .short { display: inline; }
 }
+.seg .shift-tab { display: inline-flex; align-items: center; gap: 6px; }
+.seg .shift-tab svg { width: 15px; height: 15px; }

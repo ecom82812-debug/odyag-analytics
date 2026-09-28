@@ -403,7 +403,8 @@ function updateSyncPill() {
   $('span', el).textContent = (backfill ? 'Завантажується історія…' : last ? 'Оновлено ' + fdt(last) : 'Ще не синхронізовано') + (S.live ? ' · онлайн' : '');
 }
 function storeTool() {
-  return `<div class="seg" id="storeSeg" role="group" aria-label="Магазин"><button data-store="" class="${S.store == null ? 'on' : ''}">Усі магазини</button>${activeStores().map((x) => `<button data-store="${x.id}" class="${S.store === x.id ? 'on' : ''}" style="--sc:var(${storeColor(x.id)})">${storeDot(x.id)}${esc(x.name || 'Сайт #' + x.id)}</button>`).join('')}</div>`;
+  const sh = S.page === 'managers' && S.mgrShift;
+  return `<div class="seg" id="storeSeg" role="group" aria-label="Магазин"><button data-store="" class="${!sh && S.store == null ? 'on' : ''}">Усі магазини</button>${activeStores().map((x) => `<button data-store="${x.id}" class="${!sh && S.store === x.id ? 'on' : ''}" style="--sc:var(${storeColor(x.id)})">${storeDot(x.id)}${esc(x.name || 'Сайт #' + x.id)}</button>`).join('')}${S.page === 'managers' ? `<button data-shiftview class="shift-tab ${sh ? 'on' : ''}">${icon('cal')}Графік змін</button>` : ''}</div>`;
 }
 function periodTool() {
   return `<div class="period"><button class="btn period-btn" id="periodBtn" aria-haspopup="true">${icon('cal')}<span class="lbl">${presetLabel()}</span><span class="rng">${fdate(S.from)} – ${fdate(S.to)}</span>${icon('chev')}</button></div>`;
@@ -459,11 +460,11 @@ async function render() {
   if (S.page !== 'days') document.querySelector('.cols-pop')?.remove();
   const [t, s] = TITLES[S.page]; $('#pageT').textContent = t;
   const usesStore = !['settings', 'stores', 'salary', 'fop', 'vault'].includes(S.page) && activeStores().length > 1;
-  $('#pageS').innerHTML = esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
+  $('#pageS').innerHTML = S.page === 'managers' && S.mgrShift ? 'Графік змін · хто працював і хто працюватиме' : esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
   document.documentElement.style.setProperty('--store-accent', usesStore && S.store != null ? `var(${storeColor(S.store)})` : 'transparent');
-  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page);
+  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page) && !(S.page === 'managers' && S.mgrShift);
   $('#tools').innerHTML = (usesStore ? storeTool() : '') + (usesPeriod ? periodTool() : '');
-  $('#storeSeg')?.addEventListener('click', (e) => { const b = e.target.closest('[data-store]'); if (!b) return; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
+  $('#storeSeg')?.addEventListener('click', (e) => { if (e.target.closest('[data-shiftview]')) { S.mgrShift = true; render(); return; } const b = e.target.closest('[data-store]'); if (!b) return; S.mgrShift = false; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
   $('#periodBtn')?.addEventListener('click', openPeriod);
   $('#main').classList.add('is-loading');
   try {
@@ -1075,7 +1076,7 @@ function whoWorked(rows) {
   return rows.filter((r) => val(r) >= 5 && val(r) >= total * (arch ? 0.35 : 0.2)).sort((a, b) => val(b) - val(a)).map((r) => N(r.manager_id));
 }
 async function shiftCalendar(box) {
-  const month = S.shiftMonth || (S.to || ymd(new Date())).slice(0, 7);
+  const month = S.shiftMonth || ymd(new Date()).slice(0, 7);
   const from = month + '-01', last = addDays(from, dim(from) - 1), today = ymd(new Date());
   // Для плану 2/2 потрібні і попередні дні — беремо 14 днів до початку місяця (або до сьогодні, якщо місяць майбутній)
   const factTo = last < today ? last : today;
@@ -1176,6 +1177,7 @@ function openShiftDay(btn, c, box) {
 }
 
 PAGES.managers = async (seq) => {
+  if (S.mgrShift) { $('#page').innerHTML = '<div id="shiftBox"></div>'; await shiftCalendar($('#shiftBox')); return; }
   const D = await loadPeriod(); if (seq !== renderSeq) return;
   // Частка прибутку магазину (як «20% від прибутку madona» у старому дашборді): люди з роллю «share» з тим самим ім'ям, що в менеджера
   const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
@@ -1193,7 +1195,7 @@ PAGES.managers = async (seq) => {
   const totalPay = rows.reduce((s, r) => s + r.pay, 0);
   const totalShare = rows.reduce((s, r) => s + r.shareAmt, 0);
   const det = (D.mgrDaily || []).filter((r) => N(r.sales) || N(r.upsell) || N(r.upsell_potential)).sort((a, b) => String(b.day).localeCompare(String(a.day)) || mgrName(a.manager_id).localeCompare(mgrName(b.manager_id)));
-  $('#page').innerHTML = `<div id="shiftBox"></div>${archiveHint(D.T)}
+  $('#page').innerHTML = `${archiveHint(D.T)}
   <div class="kpis">
     ${kpi('Зарплатні витрати за період', uah(totalPay + totalShare), totalShare ? `ставка й допродаж ${uah(totalPay)} + частка прибутку ${uah(totalShare)}` : (S.settings.managers_in_pnl === false ? 'не враховується у прибутку' : 'вже віднято від чистого прибутку'))}
     ${kpi('Замовлень до оплати', int(rows.reduce((s, r) => s + N(r.paid_orders), 0)), 'підтверджені + відмови')}
@@ -1226,7 +1228,6 @@ PAGES.managers = async (seq) => {
         <td class="n">${r.archived ? uah(N(r.upsell)) : `<button class="cell-edit" data-up="${r.manager_id}|${r.store_id}|${d}|${N(r.upsell)}|${N(r.upsell_auto)}|${r.adjusted ? 1 : 0}" title="${r.adjusted ? `Виправлено вручну. Автоматично: ${uah(N(r.upsell_auto))}` : 'Виправити вручну'}">${uah(N(r.upsell))}${r.adjusted ? ' ✎' : ''}${icon('edit')}</button>`}</td>
         <td class="n" style="color:var(--amber, inherit);font-weight:600">${uah(pay)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Немає даних</td></tr>'}</tbody></table></div></section>
   <p class="muted small" style="margin-top:14px">Імена та ставки менеджерів — у Налаштуваннях. Частка від прибутку магазину (наприклад, 20% від прибутку madona) налаштовується у вкладці «Зарплата» (роль «Частка прибутку магазину», ім'я — як у менеджера). Вона не віднімається від прибутку, як і в старому дашборді.</p>`;
-  shiftCalendar($('#shiftBox'));
   $$('[data-up]').forEach((b) => b.addEventListener('click', async () => {
     const [mid, sid, day, cur, auto, adj] = b.dataset.up.split('|');
     const v = prompt(`Допродаж (продано), ₴ — ${mgrName(mid)}, ${fdate(day)}.\nАвтоматично з CRM: ${uah(N(auto))}.\nЗалиште порожнім, щоб повернути автоматичну суму.`, adj === '1' ? cur : '');
