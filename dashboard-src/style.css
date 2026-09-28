@@ -297,24 +297,68 @@ table.t .name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; whi
   .c8, .c7, .c6, .c5, .c4 { grid-column: span 12; }
   .c3 { grid-column: span 6; }
 }
+/* нижня панель і меню «Ще» — лише на телефоні/планшеті */
+.tabbar, .sheet { display: none; }
 @media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; }
-  .side { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 40; height: auto; flex-direction: row; align-items: center; padding: 8px 12px; gap: 6px; overflow-x: auto; }
-  .logo { padding: 0 8px 0 0; }
-  .logo-t, .logo-s, .nav-g, .side-user, .sync-pill span { display: none; }
-  .nav, .side > .nav { display: flex; gap: 2px; overflow: visible; min-height: auto; margin: 0; padding: 0; flex: none; }
-  .nav a { padding: 7px 9px; white-space: nowrap; font-size: 13px; }
-  .nav a.on::before { display: none; }
-  .side-foot { margin: 0 0 0 auto; flex-direction: row; border: 0; padding: 0; }
-  .side-btn span { display: none; }
-  .main { padding: 16px 16px 50px; }
-  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  /* верхня смужка: логотип, назва, стан синхронізації, кнопка оновлення */
+  .side { position: static; height: auto; flex-direction: row; align-items: center; padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px; gap: 10px; overflow: visible; }
+  .side > .nav, .side-user, .sync-pill span { display: none; }
+  .logo { padding: 0; gap: 10px; flex: 1; min-width: 0; }
+  .logo-s { display: none; }
+  .logo-t { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-foot { margin: 0; flex-direction: row; align-items: center; border: 0; padding: 0; gap: 10px; }
+  .side-btn { padding: 8px 12px; }
+  .side-btn span { display: inline; }
+  .main { padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)); border-top-width: 0; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .kpi.hero { grid-column: 1 / -1; }
   .c3 { grid-column: span 12; }
-  .period-btn { min-width: 0; }
   .pl .bc, .pl td.p { display: none; }
   .form .wide { grid-column: auto; }
+
+  /* заголовок сторінки і перемикачі: на всю ширину, магазини гортаються пальцем */
+  .topbar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 14px; }
+  .page-t { font-size: 21px; }
+  .topbar > * { min-width: 0; max-width: 100%; }
+  .tools { flex-direction: column; align-items: stretch; gap: 8px; width: 100%; }
+  .tools > * { min-width: 0; max-width: 100%; }
+  .tools > .seg { display: flex; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  .tools > .seg::-webkit-scrollbar { display: none; }
+  .tools > .seg { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .tools > .seg button { flex: none; padding: 8px 12px; font-size: 13px; }
+  .period, .period-btn { width: 100%; min-width: 0; }
+  .period-btn { padding: 10px 12px; }
+  .period .pop { left: 0; right: 0; width: auto; }
+
+  /* нижня панель як у застосунку */
+  .tabbar { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: color-mix(in srgb, var(--nav-bg) 96%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid rgba(255,255,255,.06); }
+  .tabbar a, .tabbar button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; border: 0; background: none; color: var(--nav-ink); font: inherit; font-size: 10.5px; text-decoration: none; border-radius: 12px; cursor: pointer; min-width: 0; }
+  .tabbar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .tabbar svg { width: 22px; height: 22px; }
+  .tabbar .on { color: var(--nav-ink-strong); }
+  .tabbar .on svg { color: var(--brand); }
+
+  /* меню «Ще» знизу */
+  .sheet:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 70; }
+  .sheet-bg { position: absolute; inset: 0; background: rgba(15,10,16,.45); }
+  .sheet-body { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 20px 20px 0 0; padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px)); max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-pop); animation: sheetUp .22s ease-out; }
+  .sheet-h { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 6px; font-family: var(--display); font-size: 17px; }
+  .sheet-h .icon-btn svg { width: 20px; height: 20px; }
+  .sheet-g { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 12px 2px 6px; }
+  .sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .sheet-grid a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px 6px; min-height: 76px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 12px; text-align: center; line-height: 1.2; }
+  .sheet-grid a svg { width: 22px; height: 22px; color: var(--ink-2); }
+  .sheet-grid a.on { background: var(--brand-soft); border-color: var(--brand); }
+  .sheet-grid a.on svg { color: var(--ink); }
+  .sheet-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .sheet-foot .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.sheet-open { overflow: hidden; }
 }
+@keyframes sheetUp { from { transform: translateY(30px); opacity: .6; } to { transform: none; opacity: 1; } }
+
 
 /* розбивка витрат */
 .has-tip { border-bottom: 1px dotted var(--ink-3); cursor: help; }
@@ -408,3 +452,54 @@ tr.shared td b { color: var(--ink-3); }
 }
 .seg .shift-tab { display: inline-flex; align-items: center; gap: 6px; }
 .seg .shift-tab svg { width: 15px; height: 15px; }
+
+/* телефон */
+@media (max-width: 700px) {
+  .card { padding: 14px; border-radius: 14px; }
+  .card-t { font-size: 15.5px; }
+  .kpi { padding: 11px 12px 10px; }
+  .kpi-v { font-size: 19px; }
+  .kpi.hero .kpi-v { font-size: 26px; }
+  .kpi-l { font-size: 12px; }
+  .kpi-s { font-size: 11.5px; }
+  .grid, .row { gap: 10px; }
+  .pop { max-width: calc(100vw - 24px); }
+  input, select, textarea { font-size: 16px; } /* iPhone не збільшує сторінку при введенні */
+  .btn { min-height: 38px; }
+  .card-h { gap: 8px; }
+  .card-h > * { min-width: 0; max-width: 100%; }
+  .seg { max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { flex: none; }
+
+  /* широкі таблиці → картки */
+  table.t.stack, .t.stack tbody, .t.stack tfoot { display: block; width: 100%; }
+  .t.stack thead { display: none; }
+  .t.stack tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
+  .t.stack td { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 0; border: 0; text-align: left !important; white-space: normal; min-width: 0; overflow-wrap: anywhere; background: none !important; }
+  .t.stack td::before { content: attr(data-label); font-size: 11px; font-weight: 500; color: var(--ink-3); text-transform: none; }
+  .t.stack td[data-label=""]::before, .t.stack td.span::before { display: none; }
+  .t.stack td:first-child { grid-column: 1 / -1; font-weight: 650; font-size: 14px; }
+  .t.stack td:first-child::before { display: none; }
+  .t.stack td:first-child:has(input[type="checkbox"]) { grid-column: auto; order: 90; flex-direction: row; align-items: center; font-size: inherit; }
+  .t.stack td.span { grid-column: 1 / -1; padding: 6px 2px; }
+  .t.stack td:last-child:has(> button), .t.stack td:last-child:has(> .icon-btn) { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; gap: 6px; }
+  .t.stack tfoot tr { background: var(--surface-2); border-radius: 10px; margin-top: 6px; }
+  .tw:has(> .t.stack), .tbl-scroll:has(> .t.stack) { overflow-x: visible; margin: 0; }
+
+  /* таблиці-звіти: гортаються вбік, перший стовпець закріплений */
+  .t.stick1 th:first-child, .t.stick1 td:first-child { position: sticky; left: 0; z-index: 2; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+  .t.stick1 thead th:first-child { z-index: 3; }
+  .t.stick1 th, .t.stick1 td { padding-left: 8px; padding-right: 8px; }
+  .t.stick1 { font-size: 12.5px; }
+
+  /* графік змін: підсумки в один ряд */
+  .sh-sum { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
+  .sh-m { padding: 8px 9px; border-radius: 10px; }
+  .sh-mn { font-size: 12px; } .sh-mn .muted { display: none; }
+  .sh-mv { font-size: 17px; }
+  .sh-m .small { font-size: 10.5px; line-height: 1.3; }
+  .sh-nav b { min-width: 0; }
+  .shift-card .card-h { flex-direction: column; align-items: stretch; }
+  .shift-card .sh-nav { justify-content: space-between; }
+}

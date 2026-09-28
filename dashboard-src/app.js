@@ -78,6 +78,8 @@ const I = {
   cols: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
   grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="9" fill="#e9b8c9"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linejoin="round"/></svg>`;
@@ -365,6 +367,7 @@ async function loadPeriod(force = false) {
 }
 
 // ---------------------------------------------------------------- каркас
+const TABS = ['overview', 'days', 'managers', 'expenses'];
 function shell() {
   const nav = [
     ['Аналітика', [['overview', 'Огляд', 'home'], ['stores', 'Магазини', 'shop'], ['days', 'По днях', 'days'], ['months', 'По місяцях', 'months'], ['products', 'Товари', 'box'], ['ads', 'Реклама', 'ads'], ['managers', 'Менеджери', 'users']]],
@@ -387,7 +390,24 @@ function shell() {
       <div class="topbar"><div><h1 class="page-t" id="pageT"></h1><div class="page-s" id="pageS"></div></div><div class="tools" id="tools"></div></div>
       <div id="page" class="loading-veil"></div>
     </main>
+    <nav class="tabbar" aria-label="Швидкі розділи">${TABS.map((id) => { const it = nav.flatMap((g) => g[1]).find((x) => x[0] === id); return `<a data-page="${id}" href="#${id}" class="${S.page === id ? 'on' : ''}">${icon(it[2])}<span>${it[1]}</span></a>`; }).join('')}
+      <button id="moreBtn" class="${TABS.includes(S.page) ? '' : 'on'}">${icon('more')}<span>Ще</span></button></nav>
+    <div class="sheet" id="moreSheet" hidden><div class="sheet-bg" data-close></div><div class="sheet-body" role="dialog" aria-label="Усі розділи">
+      <div class="sheet-h"><b>Розділи</b><button class="icon-btn" data-close aria-label="Закрити">${icon('x')}</button></div>
+      ${nav.map(([g, items]) => `<div class="sheet-g">${g}</div><div class="sheet-grid">${items.map(([id, t, ic]) => `<a data-page="${id}" href="#${id}" class="${S.page === id ? 'on' : ''}">${icon(ic)}<span>${t}</span></a>`).join('')}</div>`).join('')}
+      <div class="sheet-foot"><span class="muted small">${esc(S.user?.email || '')}</span>${S.isOwner ? '<button class="btn sm" data-sheet-vault>🔒 Мій дохід</button>' : ''}${LIVE ? '<button class="btn sm" data-sheet-logout>Вийти</button>' : ''}</div>
+    </div></div>
   </div>`;
+  const sheet = $('#moreSheet');
+  const openSheet = (v) => { sheet.hidden = !v; document.body.classList.toggle('sheet-open', v); };
+  $('#moreBtn').addEventListener('click', () => openSheet(sheet.hidden));
+  sheet.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) return openSheet(false);
+    const a = e.target.closest('[data-page]'); if (a) { e.preventDefault(); openSheet(false); go(a.dataset.page); return; }
+    if (e.target.closest('[data-sheet-vault]')) { openSheet(false); go('vault'); }
+    if (e.target.closest('[data-sheet-logout]')) api.signOut().then(() => location.reload());
+  });
+  $('.tabbar').addEventListener('click', (e) => { const a = e.target.closest('a[data-page]'); if (!a) return; e.preventDefault(); openSheet(false); go(a.dataset.page); });
   $('.nav').addEventListener('click', (e) => { const a = e.target.closest('[data-page]'); if (!a) return; e.preventDefault(); go(a.dataset.page); });
   $('#syncBtn').addEventListener('click', () => runSync({}));
   $('#logout')?.addEventListener('click', async () => { await api.signOut(); location.reload(); });
@@ -450,7 +470,9 @@ const TITLES = {
 };
 function go(p) {
   S.page = p; if (p !== 'vault') store.set('page', p);
-  $$('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.page === p));
+  $$('.nav a, .tabbar a, .sheet-grid a').forEach((a) => a.classList.toggle('on', a.dataset.page === p));
+  $('#moreBtn')?.classList.toggle('on', !TABS.includes(p));
+  window.scrollTo(0, 0);
   history.replaceState(null, '', '#' + p);
   render();
 }
@@ -466,14 +488,38 @@ async function render() {
   $('#tools').innerHTML = (usesStore ? storeTool() : '') + (usesPeriod ? periodTool() : '');
   $('#storeSeg')?.addEventListener('click', (e) => { if (e.target.closest('[data-shiftview]')) { S.mgrShift = true; render(); return; } const b = e.target.closest('[data-store]'); if (!b) return; S.mgrShift = false; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
   $('#periodBtn')?.addEventListener('click', openPeriod);
+  { const sg = $('#storeSeg'), on = sg && $('.on', sg); if (on && sg.scrollWidth > sg.clientWidth) sg.scrollLeft = on.offsetLeft - (sg.clientWidth - on.offsetWidth) / 2; }
   $('#main').classList.add('is-loading');
   try {
     await PAGES[S.page](seq);
   } catch (e) {
     console.error(e);
     if (seq === renderSeq) $('#page').innerHTML = `<div class="card"><div class="empty">Не вдалося завантажити дані: ${esc(e.message)}</div></div>`;
-  } finally { if (seq === renderSeq) $('#main').classList.remove('is-loading'); }
+  } finally { if (seq === renderSeq) { $('#main').classList.remove('is-loading'); fitTables(); } }
 }
+// Телефон: широкі таблиці стають картками (кожен рядок — блок «назва: значення»),
+// а таблиці-звіти (клас keep-grid) лишаються таблицею з закріпленим першим стовпцем.
+const mqPhone = window.matchMedia('(max-width: 700px)');
+function fitTables(root = document) {
+  for (const t of $$('table.t', root)) {
+    if (!t.dataset.lbl) {
+      const heads = [...t.querySelectorAll('thead tr:last-child th')].map((th) => th.textContent.trim());
+      for (const tr of t.querySelectorAll('tbody tr, tfoot tr')) {
+        let i = 0;
+        for (const td of tr.children) { const span = +td.getAttribute('colspan') || 1; if (span > 1) td.classList.add('span'); else td.dataset.label = heads[i] || ''; i += span; }
+      }
+      t.dataset.lbl = '1';
+    }
+    t.classList.remove('stack', 'stick1');
+    if (!mqPhone.matches) continue;
+    const box = t.parentElement; const wide = t.scrollWidth > box.clientWidth + 4;
+    if (!wide) continue;
+    t.classList.add(t.classList.contains('keep-grid') ? 'stick1' : 'stack');
+  }
+}
+mqPhone.addEventListener?.('change', () => fitTables());
+new MutationObserver((ms) => { if (ms.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && (n.matches?.('table.t') || n.querySelector?.('table.t'))))) fitTables(); })
+  .observe(document.body, { childList: true, subtree: true });
 
 // ---------------------------------------------------------------- графіки
 const charts = {};
@@ -559,7 +605,7 @@ function channelRows(D) {
 }
 function channelTable(rows) {
   const t = S.settings.targets || {};
-  return `<div class="tw"><table class="t"><thead><tr><th>Канал</th><th class="n">Заявки</th><th class="n">Продажі</th><th class="n">Конверсія</th><th class="n">Виручка</th><th class="n">Валовий прибуток</th><th class="n">Реклама</th><th class="n">Ціна продажу</th><th class="n">Прибуток після реклами</th><th class="n">ROMI</th></tr></thead><tbody>${rows.map((c) => `<tr>
+  return `<div class="tw"><table class="t keep-grid"><thead><tr><th>Канал</th><th class="n">Заявки</th><th class="n">Продажі</th><th class="n">Конверсія</th><th class="n">Виручка</th><th class="n">Валовий прибуток</th><th class="n">Реклама</th><th class="n">Ціна продажу</th><th class="n">Прибуток після реклами</th><th class="n">ROMI</th></tr></thead><tbody>${rows.map((c) => `<tr>
     <td><b>${esc(c.ch)}</b></td><td class="n">${int(c.leads)}</td><td class="n">${int(c.sales)}</td><td class="n">${pct(c.conv, 0)}</td><td class="n">${uah(c.revenue)}</td><td class="n">${uah(c.gross)}</td>
     <td class="n">${c.ads ? uah(c.ads) : '<span class="muted">—</span>'}</td><td class="n">${c.cpo == null ? '<span class="muted">—</span>' : `<span class="${t.cpo && c.cpo > t.cpo ? 'neg' : ''}">${uah(c.cpo)}</span>`}</td>
     <td class="n ${c.after < 0 ? 'neg' : ''}">${uah(c.after)}</td><td class="n">${c.romi == null ? '<span class="muted">—</span>' : `<span class="flag ${c.romi >= (t.romi ?? 1) ? 'good' : c.romi >= 0 ? 'warn' : 'bad'}">${pct(c.romi, 0)}</span>`}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Немає даних</td></tr>'}</tbody></table></div>`;
@@ -640,7 +686,7 @@ function funnelRow(label, v, base, cls) {
 function productsMini(list) {
   if (!list.length) return '<div class="empty">Немає продажів за період</div>';
   const max = Math.max(...list.map((p) => N(p.profit)), 1);
-  return `<div class="tw"><table class="t"><thead><tr><th>Товар</th><th class="n">Продано</th><th class="n">Виручка</th><th class="n">Прибуток</th><th></th></tr></thead><tbody>${list.map((p) => `<tr><td class="name" title="${esc(p.name)}">${esc(p.name)}</td><td class="n">${int(N(p.sold))}</td><td class="n">${uah(N(p.revenue))}</td><td class="n">${uah(N(p.profit))}</td><td style="width:90px"><div class="minibar"><i style="width:${(N(p.profit) / max * 100).toFixed(0)}%"></i></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tw"><table class="t keep-grid"><thead><tr><th>Товар</th><th class="n">Продано</th><th class="n">Виручка</th><th class="n">Прибуток</th><th></th></tr></thead><tbody>${list.map((p) => `<tr><td class="name" title="${esc(p.name)}">${esc(p.name)}</td><td class="n">${int(N(p.sold))}</td><td class="n">${uah(N(p.revenue))}</td><td class="n">${uah(N(p.profit))}</td><td style="width:90px"><div class="minibar"><i style="width:${(N(p.profit) / max * 100).toFixed(0)}%"></i></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ================================================================ МАГАЗИНИ
@@ -814,7 +860,7 @@ PAGES.days = async (seq) => {
     ${kpi('CPO план / факт', `${usdf(T.cpoPlanUsd)} <span class="muted" style="font-size:14px">/ ${usdf(T.cpoFactUsd)}</span>`, 'реклама / підтверджені')}
   </div>
   <section class="card"><div class="card-h"><div><h2 class="card-t">Щоденний звіт</h2><div class="card-s">Реклама й витрати, внесені за період, розподілені по днях</div></div><div style="display:flex;gap:8px"><button class="btn sm" id="colsBtn">${icon('cols')}Стовпці</button><button class="btn sm" id="csv">${icon('dl')}CSV</button></div></div>
-    <div class="tw tbl-scroll"><table class="t"><thead><tr>${cols.map((c) => `<th class="${c[2] ? 'n' : ''} ${c[3] || ''}">${c[0]}</th>`).join('')}</tr></thead>
+    <div class="tw tbl-scroll"><table class="t keep-grid"><thead><tr>${cols.map((c) => `<th class="${c[2] ? 'n' : ''} ${c[3] || ''}">${c[0]}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${c[2] ? 'n' : ''} ${c[3] || ''}">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
     <tfoot><tr>${cols.map((c, i) => `<td class="${c[2] ? 'n' : ''} ${c[3] || ''}">${i === 0 ? 'Разом' : c[1]({ d: '', ...T })}</td>`).join('')}</tr></tfoot></table></div></section>`;
   S.daysD = D;
@@ -958,7 +1004,7 @@ PAGES.months = async (seq) => {
     <section class="card c12"><div class="card-h"><div><h2 class="card-t">Чистий прибуток по місяцях</h2><div class="card-s">${y} рік</div></div></div>
       ${legend([['Виручка', css('--s1')], ['Чистий прибуток', css('--s3')]], true)}<div class="chart" style="margin-top:8px"><canvas id="cMonths" aria-label="Прибуток по місяцях"></canvas></div></section>
     <section class="card c12"><div class="card-h"><div><h2 class="card-t">Місяці</h2><div class="card-s">Натисніть на місяць, щоб відкрити його огляд</div></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>Місяць</th><th class="n">Заявки</th><th class="n">Підтв.</th><th class="n">% підтв.</th><th class="n">Продажі</th><th class="n">Конверсія</th><th class="n">Виручка</th><th class="n">Середній чек</th><th class="n">Валовий</th><th class="n">Реклама</th><th class="n">ROMI</th><th class="n">Інші витрати</th><th class="n">Чистий прибуток</th><th class="n">Рентаб.</th></tr></thead>
+      <div class="tw"><table class="t keep-grid"><thead><tr><th>Місяць</th><th class="n">Заявки</th><th class="n">Підтв.</th><th class="n">% підтв.</th><th class="n">Продажі</th><th class="n">Конверсія</th><th class="n">Виручка</th><th class="n">Середній чек</th><th class="n">Валовий</th><th class="n">Реклама</th><th class="n">ROMI</th><th class="n">Інші витрати</th><th class="n">Чистий прибуток</th><th class="n">Рентаб.</th></tr></thead>
       <tbody>${ms.slice().reverse().map((m) => `<tr style="cursor:pointer" data-month="${m.key}"><td><b>${MONTHS[+m.key.slice(5, 7) - 1]}</b></td><td class="n">${int(m.leads)}</td><td class="n">${int(m.confirmed)}</td><td class="n">${pct(m.confRate, 0)}</td><td class="n">${int(m.sales)}</td><td class="n">${pct(m.conv, 0)}</td><td class="n">${uah(m.revenue)}</td><td class="n">${uah(m.avg)}</td><td class="n">${uah(m.gross)}</td><td class="n">${uah(m.ads)}</td><td class="n">${pct(m.romi, 0)}</td><td class="n">${uah(m.other)}</td><td class="n"><b class="${m.net < 0 ? 'neg' : ''}">${uah(m.net)}</b></td><td class="n">${pct(m.netMargin, 0)}</td></tr>`).join('') || '<tr><td colspan="14" class="empty">Немає даних за рік</td></tr>'}</tbody>
       <tfoot><tr><td>Разом</td><td class="n">${int(YT.leads)}</td><td class="n">${int(YT.confirmed)}</td><td class="n">${pct(YT.confRate, 0)}</td><td class="n">${int(YT.sales)}</td><td class="n">${pct(YT.conv, 0)}</td><td class="n">${uah(YT.revenue)}</td><td class="n">${uah(YT.avg)}</td><td class="n">${uah(YT.gross)}</td><td class="n">${uah(YT.ads)}</td><td class="n">${pct(YT.romi, 0)}</td><td class="n">${uah(YT.other)}</td><td class="n">${uah(YT.net)}</td><td class="n">${pct(YT.netMargin, 0)}</td></tr></tfoot></table></div></section>
   </div>`;
@@ -998,7 +1044,7 @@ PAGES.products = async (seq) => {
     const rows = list.filter((p) => !q || (p.name || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))
       .sort((a, b) => { const x = a[st.k] ?? -Infinity, y = b[st.k] ?? -Infinity; return (typeof x === 'string' ? x.localeCompare(y) : x - y) * st.dir; });
     const f = { sold: int, refused: (v) => (v ? `<span class="neg">${int(v)}</span>` : '0'), returned: int, buyout: (v) => pct(v, 0), revenue: uah, cost: uah, profit: (v) => `<b>${uah(v)}</b>`, margin: (v) => pct(v, 0) };
-    $('#pTable').innerHTML = `<div class="tw tbl-scroll"><table class="t"><thead><tr>${cols.map(([k, t, n]) => `<th class="sort ${n ? 'n' : ''} ${st.k === k ? 'sorted' : ''}" data-k="${k}">${t}${st.k === k ? (st.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map((p) => `<tr><td class="name" title="${esc(p.name)}">${esc(p.name)}${p.sku ? `<div class="muted small">${esc(p.sku)}</div>` : ''}</td>${cols.slice(1).map(([k]) => `<td class="n">${f[k](p[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="9" class="empty">Нічого не знайдено</td></tr>'}</tbody></table></div>`;
+    $('#pTable').innerHTML = `<div class="tw tbl-scroll"><table class="t keep-grid"><thead><tr>${cols.map(([k, t, n]) => `<th class="sort ${n ? 'n' : ''} ${st.k === k ? 'sorted' : ''}" data-k="${k}">${t}${st.k === k ? (st.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map((p) => `<tr><td class="name" title="${esc(p.name)}">${esc(p.name)}${p.sku ? `<div class="muted small">${esc(p.sku)}</div>` : ''}</td>${cols.slice(1).map(([k]) => `<td class="n">${f[k](p[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="9" class="empty">Нічого не знайдено</td></tr>'}</tbody></table></div>`;
     $('#pTable thead').addEventListener('click', (e) => { const th = e.target.closest('[data-k]'); if (!th) return; st.dir = st.k === th.dataset.k ? -st.dir : -1; st.k = th.dataset.k; S.prodSort = st; draw(); });
   };
   draw();
@@ -1127,7 +1173,7 @@ async function shiftCalendar(box) {
       : c.off ? 'вихідний' : c.ids.length ? (c.manual ? 'відмічено' : 'план 2/2') : '';
     const subst = c.kind === 'fact' && c.ids.some((id) => !rot.includes(id));
     return `<button class="${cls}" style="${style}" data-shd="${c.d}"><span class="sh-n">${day}${c.manual ? ' <i class="sh-pin" title="Відмічено вручну"></i>' : ''}</span>
-      <span class="sh-nm"><span class="full">${names || (c.off ? '—' : '')}</span><span class="short">${ord.map((id) => esc(mgrName(id).slice(0, 3))).join('+') || (c.off ? '—' : '')}</span></span><span class="sh-s">${subst ? '<b>підміна</b> · ' : ''}${sub}</span><span class="sh-h">${h1}–${h2}</span></button>`;
+      <span class="sh-nm"><span class="full">${names || (c.off ? '—' : '')}</span><span class="short">${ord.map((id) => esc(mgrName(id).slice(0, ord.length > 1 ? 1 : 3))).join('+') || (c.off ? '—' : '')}</span></span><span class="sh-s">${subst ? '<b>підміна</b> · ' : ''}${sub}</span><span class="sh-h">${h1}–${h2}</span></button>`;
   };
   const mgrIds = [...new Set([...rot, ...Object.keys(sum).map(N)])].filter((id) => rot.includes(id) || (sum[id] && (sum[id].shifts || sum[id].planned)));
   box.innerHTML = `<section class="card shift-card">
@@ -1449,7 +1495,7 @@ PAGES.salary = async (seq) => {
       </form>
       <div class="muted small" style="margin-top:8px">«Магазин» для команди з фіксованою сумою означає, з якого магазину віднімати її щомісяця. Для «Частки прибутку магазину» — від прибутку якого магазину рахувати відсоток.</div></section>
     <section class="card c5"><div class="card-h"><div><h2 class="card-t">Історія по місяцях</h2><div class="card-s">Прибуток, виплати власникам і що лишилось</div></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>Місяць</th><th class="n">Чистий прибуток</th><th class="n">Власникам</th><th class="n">Залишок</th></tr></thead><tbody>${hs.slice().reverse().map((h) => {
+      <div class="tw"><table class="t keep-grid"><thead><tr><th>Місяць</th><th class="n">Чистий прибуток</th><th class="n">Власникам</th><th class="n">Залишок</th></tr></thead><tbody>${hs.slice().reverse().map((h) => {
         const [mf, mt] = monthRange(h.key); const mp = histPay.filter((x) => x.date >= mf && x.date <= mt);
         const own = owners.reduce((a, p) => a + ownerAmount(p, h.net, mp, stNetMonth(h.key)), 0);
         return `<tr><td><b>${MONTHS[+h.key.slice(5, 7) - 1]}</b> <span class="muted small">${h.key.slice(0, 4)}</span></td><td class="n ${h.net < 0 ? 'neg' : ''}">${uah(h.net)}</td><td class="n">${uah(own)}</td><td class="n"><b class="${h.net - own < 0 ? 'neg' : ''}">${uah(h.net - own)}</b></td></tr>`; }).join('')}</tbody></table></div>
@@ -1642,7 +1688,7 @@ PAGES.vault = async (seq) => {
       </form>
       <div class="muted small" style="margin-top:8px">Зарплати менеджерів, податки ФОП, SMS, CRM тощо краще вносити у «Витрати» дашборду — тоді вони вже будуть у прибутку магазинів і не порахуються двічі.</div></section>
     <section class="card c12"><div class="card-h"><div><h2 class="card-t">По місяцях</h2></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>Місяць</th>${stores.map((x) => `<th class="n">${esc(x.name || '#' + x.id)}</th>`).join('')}<th class="n">Прибуток з одягу</th><th class="n">Інші доходи</th><th class="n">Витрати</th><th class="n">Разом, ₴</th><th class="n">Разом, $</th></tr></thead>
+      <div class="tw"><table class="t keep-grid"><thead><tr><th>Місяць</th>${stores.map((x) => `<th class="n">${esc(x.name || '#' + x.id)}</th>`).join('')}<th class="n">Прибуток з одягу</th><th class="n">Інші доходи</th><th class="n">Витрати</th><th class="n">Разом, ₴</th><th class="n">Разом, $</th></tr></thead>
       <tbody>${months.map((k) => { const X = calc(k); return `<tr><td><b>${MONTHS[+k.slice(5, 7) - 1]}</b> <span class="muted small">${k.slice(0, 4)}</span></td>${X.storeNets.map((r) => `<td class="n">${uah(r.net)}</td>`).join('')}<td class="n">${uah(X.clothes)}</td><td class="n">${uah(X.inc)}</td><td class="n">${X.exp ? '−' + uah(X.exp) : '—'}</td><td class="n"><b class="${X.result < 0 ? 'neg' : ''}">${uah(X.result)}</b></td><td class="n">${usdS(X.result)}</td></tr>`; }).join('')}</tbody></table></div>
       <div class="muted small" style="margin-top:8px">Долари — за поточним курсом із налаштувань (${nf2.format(usd)} ₴).</div></section>
   </div>`;
