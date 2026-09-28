@@ -153,7 +153,7 @@ input[type=text], input[type=number], input[type=date], input[type=month], input
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--s1) 45%, transparent); border-color: var(--s1); }
 label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ink-2); font-weight: 500; min-width: 0; }
-.form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); align-items: end; }
+.form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); align-items: end; }
 .form .wide { grid-column: span 2; }
 .seg { display: inline-flex; background: var(--surface-3); border-radius: 10px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; padding: 5px 11px; border-radius: 8px; cursor: pointer; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
@@ -170,7 +170,7 @@ label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; colo
 .pop button.row.on { font-weight: 650; }
 .pop button.row .ck { width: 16px; height: 16px; opacity: 0; }
 .pop button.row.on .ck { opacity: 1; }
-.pop .custom { border-top: 1px solid var(--line); margin-top: 6px; padding: 10px 6px 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pop .custom { border-top: 1px solid var(--line); margin-top: 6px; padding: 10px 6px 4px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .pop .custom .btn { grid-column: span 2; justify-content: center; }
 
 /* ================= картки ================= */
@@ -514,6 +514,19 @@ tr.shared td b { color: var(--ink-3); }
   .sh-nav b { min-width: 0; }
   .shift-card .card-h { flex-direction: column; align-items: stretch; }
   .shift-card .sh-nav { justify-content: space-between; }
+}
+
+/* Поля дати й місяця: у Safari на iPhone вони не стискаються і розпирають сторінку */
+input[type="date"], input[type="month"], input[type="datetime-local"] { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.month-in { width: 170px; }
+@media (max-width: 860px) {
+  input[type="date"], input[type="month"], input[type="datetime-local"] { -webkit-appearance: none; appearance: none; width: 100%; display: block; min-height: 42px; text-align: left; background-color: var(--surface); }
+  input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+  .month-in { width: 100%; max-width: 220px; }
+  label.f, .form > * { min-width: 0; }
+  .form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form > .btn, .form > button { grid-column: 1 / -1; justify-content: center; }
+  html, body { overflow-x: clip; max-width: 100%; }
 }
 
 </style>
@@ -1711,7 +1724,7 @@ function openAdCell(btn, day, D) {
   const otherAds = (id) => D.expenses.filter((e) => e.category === 'Реклама' && (e.store_id ?? null) === id && e.date <= day && (e.date_to || e.date) >= day && e !== quickFor(id)).length;
   const pop = document.createElement('div'); pop.className = 'pop ad-pop';
   pop.innerHTML = `<div style="padding:6px 6px 2px"><div style="font-weight:650">Реклама за ${fdate(day)}</div><div class="muted small">Сума за день по кожному магазину</div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 6px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding:8px 6px">
       <label class="f">Канал<select id="apCh">${(S.settings.ad_channels || ['Meta']).map((c) => `<option ${c === ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f">Валюта<select id="apCur">${['USD', 'UAH', 'EUR'].map((c) => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     </div>
@@ -1907,7 +1920,7 @@ PAGES.ads = async (seq) => {
     <section class="card c7"><div class="card-h"><div><h2 class="card-t">Реклама і валовий прибуток</h2><div class="card-s">Окупається, поки помаранчеві стовпці вищі за сині</div></div>${groupSeg()}</div>
       ${legend([['Реклама', css('--s1')], ['Валовий прибуток', css('--s2')]], true)}<div class="chart" style="margin-top:8px"><canvas id="cAds" aria-label="Реклама і валовий прибуток"></canvas></div></section>
     <section class="card c5"><div class="card-h"><div><h2 class="card-t">Внести рекламу</h2><div class="card-s">Можна за день або одразу за тиждень</div></div></div>
-      <form class="form" id="adForm" style="grid-template-columns:1fr 1fr">
+      <form class="form" id="adForm" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
         <label class="f">Дата<input type="date" name="date" required value="${ymd(new Date())}"></label>
         <label class="f">По яку дату<input type="date" name="date_to"></label>
         ${storeSelect('store_id', S.store)}
@@ -2255,7 +2268,7 @@ function payRule(p) {
 PAGES.salary = async (seq) => {
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.salMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="salM" value="${m}" max="${nowM}" style="width:170px"></label>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="salM" value="${m}" max="${nowM}" class="month-in"></label>`;
   $('#salM').addEventListener('change', (e) => { S.salMonth = e.target.value || nowM; render(); });
   const [from, to, monthEnd] = monthRange(m);
   const hFrom = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6, 1); return ymd(d); })();
@@ -2462,7 +2475,7 @@ PAGES.vault = async (seq) => {
   if (!S.vaultOk) return vaultLock();
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.vaultMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="vM" value="${m}" max="${nowM}" style="width:170px"></label><button class="btn sm" id="vLock">🔒 Заблокувати</button>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="vM" value="${m}" max="${nowM}" class="month-in"></label><button class="btn sm" id="vLock">🔒 Заблокувати</button>`;
   $('#vM').addEventListener('change', (e) => { S.vaultMonth = e.target.value || nowM; render(); });
   $('#vLock').addEventListener('click', () => { S.vaultOk = false; go('overview'); });
   const [from, to] = monthRange(m);
@@ -2631,7 +2644,7 @@ PAGES.obmin = async (seq) => {
 PAGES.fop = async (seq) => {
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.fopMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="fopM" value="${m}" max="${nowM}" style="width:170px"></label>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="fopM" value="${m}" max="${nowM}" class="month-in"></label>`;
   $('#fopM').addEventListener('change', (e) => { S.fopMonth = e.target.value || nowM; render(); });
   const [from, to, monthEnd] = monthRange(m);
   const yFrom = m.slice(0, 4) + '-01-01';
@@ -2815,12 +2828,12 @@ PAGES.settings = async (seq) => {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn yellow" id="sNow">${icon('sync')}Оновити зараз</button></div>
       <div class="hint" style="margin-top:14px"><b>Перезавантажити період.</b> Якщо ви змінили старі замовлення в SalesDrive (собівартість, статуси) і хочете оновити їх тут.
-        <div class="form" style="margin-top:10px;grid-template-columns:1fr 1fr auto"><label class="f">З<input type="date" id="rFrom" value="${addDays(ymd(new Date()), -30)}"></label><label class="f">По<input type="date" id="rTo" value="${ymd(new Date())}"></label><button class="btn" id="rGo">Перезавантажити</button></div>
+        <div class="form" style="margin-top:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto"><label class="f">З<input type="date" id="rFrom" value="${addDays(ymd(new Date()), -30)}"></label><label class="f">По<input type="date" id="rTo" value="${ymd(new Date())}"></label><button class="btn" id="rGo">Перезавантажити</button></div>
         <div class="progress" id="rProg" hidden style="margin-top:10px"><i></i></div><div class="small muted" id="rMsg" style="margin-top:6px"></div></div>
       <div class="tw" style="margin-top:12px"><table class="t"><thead><tr><th>Коли</th><th class="n">Замовлень</th><th>Результат</th></tr></thead><tbody>${log.map((l) => `<tr><td style="white-space:nowrap">${fdt(l.at)}</td><td class="n">${int(N(l.orders))}</td><td class="${l.ok ? '' : 'neg'} small">${esc(l.message || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Ще не було запусків</td></tr>'}</tbody></table></div></section>
 
     <section class="card c6"><div class="card-h"><div><h2 class="card-t">Основне</h2></div></div>
-      <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
         <label class="f" style="grid-column:span 2">Назва в меню<input type="text" id="sName" value="${esc(st.store_name || '')}" placeholder="Одяг"></label>
         <label class="f">Курс долара, ₴<input type="text" id="sUsd" inputmode="decimal" value="${esc(st.usd_rate ?? '')}"></label>
         <label class="f">Курс євро, ₴<input type="text" id="sEur" inputmode="decimal" value="${esc(st.eur_rate ?? '')}"></label>
@@ -2841,7 +2854,7 @@ PAGES.settings = async (seq) => {
       <label style="display:flex;gap:10px;margin:8px 0;align-items:flex-start"><input type="radio" name="gsplit" value="none" ${st.general_split === 'none' ? 'checked' : ''}><span><b>Не ділити.</b> <span class="muted small">Віднімаються лише із загального прибутку в режимі «Усі магазини».</span></span></label>
       <label style="display:flex;gap:10px;margin:12px 0 4px;align-items:center"><input type="checkbox" id="sMgr" ${st.managers_in_pnl !== false ? 'checked' : ''}><span>Віднімати зарплату менеджерів від прибутку</span></label>
       <div style="margin-top:14px;font-size:12px;color:var(--ink-2);font-weight:500">Цілі (підсвічуються зеленим або червоним)</div>
-      <div class="form" style="grid-template-columns:1fr 1fr;margin-top:6px">
+      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:6px">
         <label class="f">ROAS не менше, x<input type="text" id="tRoas" inputmode="decimal" value="${tg.roas ?? ''}"></label>
         <label class="f">Ціна ліда до, $<input type="text" id="tCpl" inputmode="decimal" value="${tg.cpl_usd ?? ''}"></label>
         <label class="f">ROMI не менше, %<input type="text" id="tRomi" inputmode="decimal" value="${tg.romi != null ? Math.round(tg.romi * 100) : ''}"></label>

@@ -881,7 +881,7 @@ function openAdCell(btn, day, D) {
   const otherAds = (id) => D.expenses.filter((e) => e.category === 'Реклама' && (e.store_id ?? null) === id && e.date <= day && (e.date_to || e.date) >= day && e !== quickFor(id)).length;
   const pop = document.createElement('div'); pop.className = 'pop ad-pop';
   pop.innerHTML = `<div style="padding:6px 6px 2px"><div style="font-weight:650">Реклама за ${fdate(day)}</div><div class="muted small">Сума за день по кожному магазину</div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 6px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding:8px 6px">
       <label class="f">Канал<select id="apCh">${(S.settings.ad_channels || ['Meta']).map((c) => `<option ${c === ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f">Валюта<select id="apCur">${['USD', 'UAH', 'EUR'].map((c) => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     </div>
@@ -1077,7 +1077,7 @@ PAGES.ads = async (seq) => {
     <section class="card c7"><div class="card-h"><div><h2 class="card-t">Реклама і валовий прибуток</h2><div class="card-s">Окупається, поки помаранчеві стовпці вищі за сині</div></div>${groupSeg()}</div>
       ${legend([['Реклама', css('--s1')], ['Валовий прибуток', css('--s2')]], true)}<div class="chart" style="margin-top:8px"><canvas id="cAds" aria-label="Реклама і валовий прибуток"></canvas></div></section>
     <section class="card c5"><div class="card-h"><div><h2 class="card-t">Внести рекламу</h2><div class="card-s">Можна за день або одразу за тиждень</div></div></div>
-      <form class="form" id="adForm" style="grid-template-columns:1fr 1fr">
+      <form class="form" id="adForm" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
         <label class="f">Дата<input type="date" name="date" required value="${ymd(new Date())}"></label>
         <label class="f">По яку дату<input type="date" name="date_to"></label>
         ${storeSelect('store_id', S.store)}
@@ -1425,7 +1425,7 @@ function payRule(p) {
 PAGES.salary = async (seq) => {
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.salMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="salM" value="${m}" max="${nowM}" style="width:170px"></label>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="salM" value="${m}" max="${nowM}" class="month-in"></label>`;
   $('#salM').addEventListener('change', (e) => { S.salMonth = e.target.value || nowM; render(); });
   const [from, to, monthEnd] = monthRange(m);
   const hFrom = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6, 1); return ymd(d); })();
@@ -1632,7 +1632,7 @@ PAGES.vault = async (seq) => {
   if (!S.vaultOk) return vaultLock();
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.vaultMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="vM" value="${m}" max="${nowM}" style="width:170px"></label><button class="btn sm" id="vLock">🔒 Заблокувати</button>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="vM" value="${m}" max="${nowM}" class="month-in"></label><button class="btn sm" id="vLock">🔒 Заблокувати</button>`;
   $('#vM').addEventListener('change', (e) => { S.vaultMonth = e.target.value || nowM; render(); });
   $('#vLock').addEventListener('click', () => { S.vaultOk = false; go('overview'); });
   const [from, to] = monthRange(m);
@@ -1801,7 +1801,7 @@ PAGES.obmin = async (seq) => {
 PAGES.fop = async (seq) => {
   const nowM = ymd(new Date()).slice(0, 7);
   const m = S.fopMonth || nowM;
-  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="fopM" value="${m}" max="${nowM}" style="width:170px"></label>`;
+  $('#tools').innerHTML = `<label class="f" style="flex-direction:row;align-items:center;gap:8px">Місяць<input type="month" id="fopM" value="${m}" max="${nowM}" class="month-in"></label>`;
   $('#fopM').addEventListener('change', (e) => { S.fopMonth = e.target.value || nowM; render(); });
   const [from, to, monthEnd] = monthRange(m);
   const yFrom = m.slice(0, 4) + '-01-01';
@@ -1985,12 +1985,12 @@ PAGES.settings = async (seq) => {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn yellow" id="sNow">${icon('sync')}Оновити зараз</button></div>
       <div class="hint" style="margin-top:14px"><b>Перезавантажити період.</b> Якщо ви змінили старі замовлення в SalesDrive (собівартість, статуси) і хочете оновити їх тут.
-        <div class="form" style="margin-top:10px;grid-template-columns:1fr 1fr auto"><label class="f">З<input type="date" id="rFrom" value="${addDays(ymd(new Date()), -30)}"></label><label class="f">По<input type="date" id="rTo" value="${ymd(new Date())}"></label><button class="btn" id="rGo">Перезавантажити</button></div>
+        <div class="form" style="margin-top:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto"><label class="f">З<input type="date" id="rFrom" value="${addDays(ymd(new Date()), -30)}"></label><label class="f">По<input type="date" id="rTo" value="${ymd(new Date())}"></label><button class="btn" id="rGo">Перезавантажити</button></div>
         <div class="progress" id="rProg" hidden style="margin-top:10px"><i></i></div><div class="small muted" id="rMsg" style="margin-top:6px"></div></div>
       <div class="tw" style="margin-top:12px"><table class="t"><thead><tr><th>Коли</th><th class="n">Замовлень</th><th>Результат</th></tr></thead><tbody>${log.map((l) => `<tr><td style="white-space:nowrap">${fdt(l.at)}</td><td class="n">${int(N(l.orders))}</td><td class="${l.ok ? '' : 'neg'} small">${esc(l.message || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Ще не було запусків</td></tr>'}</tbody></table></div></section>
 
     <section class="card c6"><div class="card-h"><div><h2 class="card-t">Основне</h2></div></div>
-      <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
         <label class="f" style="grid-column:span 2">Назва в меню<input type="text" id="sName" value="${esc(st.store_name || '')}" placeholder="Одяг"></label>
         <label class="f">Курс долара, ₴<input type="text" id="sUsd" inputmode="decimal" value="${esc(st.usd_rate ?? '')}"></label>
         <label class="f">Курс євро, ₴<input type="text" id="sEur" inputmode="decimal" value="${esc(st.eur_rate ?? '')}"></label>
@@ -2011,7 +2011,7 @@ PAGES.settings = async (seq) => {
       <label style="display:flex;gap:10px;margin:8px 0;align-items:flex-start"><input type="radio" name="gsplit" value="none" ${st.general_split === 'none' ? 'checked' : ''}><span><b>Не ділити.</b> <span class="muted small">Віднімаються лише із загального прибутку в режимі «Усі магазини».</span></span></label>
       <label style="display:flex;gap:10px;margin:12px 0 4px;align-items:center"><input type="checkbox" id="sMgr" ${st.managers_in_pnl !== false ? 'checked' : ''}><span>Віднімати зарплату менеджерів від прибутку</span></label>
       <div style="margin-top:14px;font-size:12px;color:var(--ink-2);font-weight:500">Цілі (підсвічуються зеленим або червоним)</div>
-      <div class="form" style="grid-template-columns:1fr 1fr;margin-top:6px">
+      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:6px">
         <label class="f">ROAS не менше, x<input type="text" id="tRoas" inputmode="decimal" value="${tg.roas ?? ''}"></label>
         <label class="f">Ціна ліда до, $<input type="text" id="tCpl" inputmode="decimal" value="${tg.cpl_usd ?? ''}"></label>
         <label class="f">ROMI не менше, %<input type="text" id="tRomi" inputmode="decimal" value="${tg.romi != null ? Math.round(tg.romi * 100) : ''}"></label>

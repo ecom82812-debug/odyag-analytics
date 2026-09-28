@@ -141,7 +141,7 @@ input[type=text], input[type=number], input[type=date], input[type=month], input
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--s1) 45%, transparent); border-color: var(--s1); }
 label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ink-2); font-weight: 500; min-width: 0; }
-.form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); align-items: end; }
+.form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); align-items: end; }
 .form .wide { grid-column: span 2; }
 .seg { display: inline-flex; background: var(--surface-3); border-radius: 10px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; padding: 5px 11px; border-radius: 8px; cursor: pointer; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
@@ -158,7 +158,7 @@ label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; colo
 .pop button.row.on { font-weight: 650; }
 .pop button.row .ck { width: 16px; height: 16px; opacity: 0; }
 .pop button.row.on .ck { opacity: 1; }
-.pop .custom { border-top: 1px solid var(--line); margin-top: 6px; padding: 10px 6px 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pop .custom { border-top: 1px solid var(--line); margin-top: 6px; padding: 10px 6px 4px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .pop .custom .btn { grid-column: span 2; justify-content: center; }
 
 /* ================= картки ================= */
@@ -502,4 +502,17 @@ tr.shared td b { color: var(--ink-3); }
   .sh-nav b { min-width: 0; }
   .shift-card .card-h { flex-direction: column; align-items: stretch; }
   .shift-card .sh-nav { justify-content: space-between; }
+}
+
+/* Поля дати й місяця: у Safari на iPhone вони не стискаються і розпирають сторінку */
+input[type="date"], input[type="month"], input[type="datetime-local"] { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.month-in { width: 170px; }
+@media (max-width: 860px) {
+  input[type="date"], input[type="month"], input[type="datetime-local"] { -webkit-appearance: none; appearance: none; width: 100%; display: block; min-height: 42px; text-align: left; background-color: var(--surface); }
+  input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+  .month-in { width: 100%; max-width: 220px; }
+  label.f, .form > * { min-width: 0; }
+  .form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form > .btn, .form > button { grid-column: 1 / -1; justify-content: center; }
+  html, body { overflow-x: clip; max-width: 100%; }
 }
