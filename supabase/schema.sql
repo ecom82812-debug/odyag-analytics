@@ -1053,3 +1053,11 @@ on conflict (manager_id, valid_from) do nothing;
 insert into settings(key, value)
 select 'usd_rate_history', jsonb_build_array(jsonb_build_object('from', '2000-01-01', 'rate', coalesce((select (value #>> '{}')::numeric from settings where key = 'usd_rate'), 45)))
 on conflict (key) do nothing;
+-- =====================================================================
+-- 011: щомісячна виплата з часткою від чистого прибутку магазину (Вікторія)
+-- =====================================================================
+alter table mgr_payouts add column if not exists period_kind  text not null default 'half';  -- half = двічі на місяць, month = раз на місяць
+alter table mgr_payouts add column if not exists share_amount numeric(14,2) not null default 0;
+alter table mgr_payouts add column if not exists share_net    numeric(14,2);
+alter table mgr_payouts add column if not exists share_pct    numeric(8,4);
+alter table mgr_payouts add column if not exists share_store  int;
