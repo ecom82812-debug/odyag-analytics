@@ -516,3 +516,30 @@ input[type="date"], input[type="month"], input[type="datetime-local"] { min-widt
   .form > .btn, .form > button { grid-column: 1 / -1; justify-content: center; }
   html, body { overflow-x: clip; max-width: 100%; }
 }
+
+/* ---------- Виплати менеджерам ---------- */
+.pay-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.pay-sec { padding: 12px 0; border-top: 1px solid var(--line); }
+.pay-sec:first-of-type { border-top: 0; padding-top: 0; }
+.pay-l { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 7px; }
+.pay-dates { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; max-width: 380px; margin-bottom: 6px; }
+.pay-bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(26px, 1fr)); gap: 3px; margin: 8px 0 6px; }
+.pb-d { height: 30px; border-radius: 6px; border: 1px solid transparent; font: inherit; font-size: 11px; cursor: pointer; padding: 0; color: var(--ink-2); background: var(--surface-3); opacity: .55; }
+.pb-d.in { opacity: 1; }
+.pb-d.done { background: color-mix(in srgb, var(--good) 22%, var(--surface)); color: var(--good); }
+.pb-d.pend { background: color-mix(in srgb, var(--warn) 22%, var(--surface)); color: var(--warn); }
+.pb-d.in { border-color: color-mix(in srgb, var(--ink) 35%, transparent); }
+.pay-lg { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--ink-3); }
+.pay-lg i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--surface-3); }
+.pay-lg i.done { background: color-mix(in srgb, var(--good) 35%, var(--surface)); } .pay-lg i.pend { background: color-mix(in srgb, var(--warn) 35%, var(--surface)); }
+.adj-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+.adj-row input.neg { color: var(--bad); }
+.pay-sum { position: sticky; top: 14px; }
+.pay-total { display: flex; justify-content: space-between; align-items: baseline; border-top: 2px solid var(--ink); margin-top: 8px; padding-top: 10px; }
+.pay-total b { font-family: var(--display); font-size: 26px; }
+.pay-text { white-space: pre-wrap; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 12.5px/1.5 var(--font); color: var(--ink-2); margin: 12px 0; }
+.pay-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pay-btns .btn { justify-content: center; }
+.stat-row b.pos { color: var(--good); } .stat-row b.neg, td.neg { color: var(--bad); }
+@media (max-width: 860px) { .pay-grid { grid-template-columns: minmax(0, 1fr); } .pay-sum { position: static; } }
+@media (max-width: 700px) { .adj-row { grid-template-columns: minmax(0, 1fr) 90px auto; } .pay-btns { grid-template-columns: 1fr; } }

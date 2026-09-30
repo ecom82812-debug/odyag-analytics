@@ -423,8 +423,8 @@ function updateSyncPill() {
   $('span', el).textContent = (backfill ? 'Завантажується історія…' : last ? 'Оновлено ' + fdt(last) : 'Ще не синхронізовано') + (S.live ? ' · онлайн' : '');
 }
 function storeTool() {
-  const sh = S.page === 'managers' && S.mgrShift;
-  return `<div class="seg" id="storeSeg" role="group" aria-label="Магазин"><button data-store="" class="${!sh && S.store == null ? 'on' : ''}">Усі магазини</button>${activeStores().map((x) => `<button data-store="${x.id}" class="${!sh && S.store === x.id ? 'on' : ''}" style="--sc:var(${storeColor(x.id)})">${storeDot(x.id)}${esc(x.name || 'Сайт #' + x.id)}</button>`).join('')}${S.page === 'managers' ? `<button data-shiftview class="shift-tab ${sh ? 'on' : ''}">${icon('cal')}Графік змін</button>` : ''}</div>`;
+  const sh = S.page === 'managers' && !!S.mgrView;
+  return `<div class="seg" id="storeSeg" role="group" aria-label="Магазин"><button data-store="" class="${!sh && S.store == null ? 'on' : ''}">Усі магазини</button>${activeStores().map((x) => `<button data-store="${x.id}" class="${!sh && S.store === x.id ? 'on' : ''}" style="--sc:var(${storeColor(x.id)})">${storeDot(x.id)}${esc(x.name || 'Сайт #' + x.id)}</button>`).join('')}${S.page === 'managers' ? `<button data-mview="shift" class="shift-tab ${S.mgrView === 'shift' ? 'on' : ''}">${icon('cal')}Графік змін</button><button data-mview="pay" class="shift-tab ${S.mgrView === 'pay' ? 'on' : ''}">${icon('coin')}Виплати</button>` : ''}</div>`;
 }
 function periodTool() {
   return `<div class="period"><button class="btn period-btn" id="periodBtn" aria-haspopup="true">${icon('cal')}<span class="lbl">${presetLabel()}</span><span class="rng">${fdate(S.from)} – ${fdate(S.to)}</span>${icon('chev')}</button></div>`;
@@ -482,11 +482,11 @@ async function render() {
   if (S.page !== 'days') document.querySelector('.cols-pop')?.remove();
   const [t, s] = TITLES[S.page]; $('#pageT').textContent = t;
   const usesStore = !['settings', 'stores', 'salary', 'fop', 'vault'].includes(S.page) && activeStores().length > 1;
-  $('#pageS').innerHTML = S.page === 'managers' && S.mgrShift ? 'Графік змін · хто працював і хто працюватиме' : esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
+  $('#pageS').innerHTML = S.page === 'managers' && S.mgrView ? (S.mgrView === 'pay' ? 'Виплати менеджерам · ставка, допродаж, бонуси і штрафи' : 'Графік змін · хто працював і хто працюватиме') : esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
   document.documentElement.style.setProperty('--store-accent', usesStore && S.store != null ? `var(${storeColor(S.store)})` : 'transparent');
-  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page) && !(S.page === 'managers' && S.mgrShift);
+  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page) && !(S.page === 'managers' && S.mgrView);
   $('#tools').innerHTML = (usesStore ? storeTool() : '') + (usesPeriod ? periodTool() : '');
-  $('#storeSeg')?.addEventListener('click', (e) => { if (e.target.closest('[data-shiftview]')) { S.mgrShift = true; render(); return; } const b = e.target.closest('[data-store]'); if (!b) return; S.mgrShift = false; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
+  $('#storeSeg')?.addEventListener('click', (e) => { { const mv = e.target.closest('[data-mview]'); if (mv) { S.mgrView = mv.dataset.mview; render(); return; } } const b = e.target.closest('[data-store]'); if (!b) return; S.mgrView = null; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
   $('#periodBtn')?.addEventListener('click', openPeriod);
   { const sg = $('#storeSeg'), on = sg && $('.on', sg); if (on && sg.scrollWidth > sg.clientWidth) sg.scrollLeft = on.offsetLeft - (sg.clientWidth - on.offsetWidth) / 2; }
   $('#main').classList.add('is-loading');
@@ -1222,8 +1222,144 @@ function openShiftDay(btn, c, box) {
   }));
 }
 
+// ================================================================ ВИПЛАТИ МЕНЕДЖЕРАМ
+// Двічі на місяць: замовлення (ставка) — від дня після минулої виплати до кінця дводенної зміни;
+// допродаж — лише «Продаж», по дату, до якої все вже викуплено; плюс бонуси/штрафи.
+const PAY_CAT = 'Бонуси і штрафи менеджерів';
+const dm = (d) => (d ? d.slice(8, 10) + '.' + d.slice(5, 7) : '');
+const gr = (v, fixed = false) => (Math.round(v * 100) / 100).toLocaleString('uk-UA', { minimumFractionDigits: fixed ? 2 : 0, maximumFractionDigits: 2 });
+async function payoutsPage(seq) {
+  const today = ymd(new Date());
+  const mgrs = S.managers.filter((m) => m.active !== false);
+  if (!mgrs.length) { $('#page').innerHTML = '<div class="card"><div class="empty">Менеджерів ще немає</div></div>'; return; }
+  const rot = (Array.isArray(S.settings.shift_rotation) ? S.settings.shift_rotation : [4, 5]).map(N);
+  if (!S.payMgr || !mgrs.some((m) => m.id === S.payMgr)) S.payMgr = (mgrs.find((m) => rot.includes(m.id)) || mgrs[0]).id;
+  const [payouts, shifts] = await Promise.all([api.rows('mgr_payouts').catch(() => []), api.rpc('stats_shifts', { p_from: addDays(today, -60), p_to: today }).catch(() => [])]);
+  if (seq !== renderSeq) return;
+  const mine = (id) => payouts.filter((x) => N(x.manager_id) === id).sort((a, b) => String(b.orders_to).localeCompare(String(a.orders_to)) || N(b.id) - N(a.id));
+  // Кінець останнього завершеного блоку змін менеджера (з CRM)
+  const byDay = {}; for (const r of shifts) (byDay[String(r.day).slice(0, 10)] = byDay[String(r.day).slice(0, 10)] || []).push(r);
+  const worked = (d, id) => !!byDay[d] && whoWorked(byDay[d]).includes(id);
+  const hasFact = (d) => !!byDay[d] && whoWorked(byDay[d]).length > 0;
+  const shiftEnd = (id, from) => {
+    for (let d = addDays(today, -1); d >= from; d = addDays(d, -1)) {
+      if (!worked(d, id)) continue;
+      const nx = addDays(d, 1);
+      if ((nx < today || hasFact(nx)) && !worked(nx, id)) return d;       // наступного дня вже працював хтось інший
+      if (nx === today && !hasFact(today) && worked(addDays(d, -1), id)) return d; // сьогодні ще немає замовлень, а два дні вже відпрацьовано
+    }
+    return null;
+  };
+  const m = mgrs.find((x) => x.id === S.payMgr);
+  const last = mine(m.id)[0];
+  const P = S.pay && S.pay.mid === m.id ? S.pay : (S.pay = (() => {
+    const oFrom = last ? addDays(String(last.orders_to).slice(0, 10), 1) : (today.slice(8) > '16' ? today.slice(0, 8) + '16' : today.slice(0, 8) + '01');
+    const oTo = shiftEnd(m.id, oFrom) || addDays(today, -1);
+    const uFrom = last && last.upsell_to ? addDays(String(last.upsell_to).slice(0, 10), 1) : oFrom;
+    return { mid: m.id, oFrom, oTo: oTo < oFrom ? oFrom : oTo, uFrom, uTo: null, adj: [], paidAt: today, autoU: true };
+  })());
+  const lo = [P.oFrom, P.uFrom].sort()[0], hi = [P.oTo, today].sort()[1];
+  const daily = (await api.rpc('stats_manager_daily', { p_from: lo, p_to: hi, p_fin: 'order', p_store: null })).filter((r) => N(r.manager_id) === m.id);
+  if (seq !== renderSeq) return;
+  const dayAgg = {}; for (const r of daily) { const d = String(r.day).slice(0, 10); const a = dayAgg[d] = dayAgg[d] || { sales: 0, ups: 0, pot: 0 }; a.sales += N(r.sales); a.ups += N(r.upsell); a.pot += N(r.upsell_potential); }
+  const pending = (d) => { const a = dayAgg[d]; return a ? Math.max(0, a.pot - a.ups) : 0; };
+  if (P.autoU) { // допродаж — по день перед першим днем, де ще є невикуплений допродаж
+    let d = P.uFrom, lastOk = addDays(P.uFrom, -1);
+    for (; d <= P.oTo; d = addDays(d, 1)) { if (pending(d) > 0.5) break; if (dayAgg[d]) lastOk = d; } // межа — останній робочий день менеджера перед днем з допродажем у дорозі
+    P.uTo = lastOk;
+  }
+  const sum = (from, to, k) => Object.entries(dayAgg).filter(([d]) => d >= from && d <= to).reduce((s, [, a]) => s + a[k], 0);
+  const cnt = sum(P.oFrom, P.oTo, 'sales');
+  const ups = P.uTo >= P.uFrom ? sum(P.uFrom, P.uTo, 'ups') : 0;
+  const rate = N(m.rate_per_order), upct = N(m.upsell_pct);
+  const oPay = cnt * rate, uPay = Math.round(ups * upct * 100) / 100;
+  const adjT = P.adj.reduce((s, a) => s + N(a.amount), 0);
+  const total = oPay + uPay + adjT;
+  const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}`, '',
+    `К-ть замовлень: ${cnt} шт. * ${gr(rate)} грн. = ${gr(oPay, true)} грн.`,
+    ups ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн.* ${gr(upct * 100)}% = ${gr(uPay)} грн.` : null,
+    ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
+    '', `Разом до виплати: ${gr(total)} грн.`].filter((x) => x !== null).join('\n');
+  // Смужка днів допродажу
+  const days = []; for (let d = P.uFrom; d <= P.oTo && days.length < 62; d = addDays(d, 1)) days.push(d);
+  const bar = days.map((d) => { const a = dayAgg[d] || { ups: 0, pot: 0 }; const pend = pending(d); const inU = d <= P.uTo;
+    const cls = pend > 0.5 ? 'pend' : a.pot > 0 ? 'done' : 'none';
+    return `<button class="pb-d ${cls} ${inU ? 'in' : ''}" data-uto="${d}" title="${fdate(d)}: продано ${uah(a.ups)}${pend > 0.5 ? `, ще в дорозі ${uah(pend)}` : ''}"><span>${+d.slice(8)}</span></button>`; }).join('');
+  const hist = payouts.slice().sort((a, b) => String(b.paid_at).localeCompare(String(a.paid_at)) || N(b.id) - N(a.id));
+  $('#page').innerHTML = `
+  <div class="seg pay-mgrs" style="margin-bottom:14px">${mgrs.map((x) => { const l = mine(x.id)[0]; return `<button data-pm="${x.id}" class="${x.id === m.id ? 'on' : ''}"><i class="sdot" style="background:${mgrColor(x.id)}"></i>${esc(x.name || '#' + x.id)}${l ? ` <span class="muted small">до ${dm(String(l.orders_to).slice(0, 10))}</span>` : ''}</button>`; }).join('')}</div>
+  <div class="pay-grid">
+    <section class="card">
+      <div class="card-h"><div><h2 class="card-t">Нова виплата · ${esc(m.name)}</h2><div class="card-s">${last ? `Минула виплата: замовлення по ${fdate(String(last.orders_to).slice(0, 10))}, допродаж по ${fdate(String(last.upsell_to || last.orders_to).slice(0, 10))}` : 'Це перша виплата в системі — перевірте дати початку'}</div></div></div>
+      <div class="pay-sec"><div class="pay-l">Замовлення · ${gr(rate)} ₴ за підтверджене або відмову</div>
+        <div class="pay-dates"><input type="date" data-p="oFrom" value="${P.oFrom}"><span>—</span><input type="date" data-p="oTo" value="${P.oTo}"></div>
+        <div class="muted small">${shiftEnd(m.id, P.oFrom) ? `Кінець останньої зміни — ${fdate(shiftEnd(m.id, P.oFrom))} (з графіка змін)` : 'Зміну в графіку не знайдено — вкажіть дату вручну'}</div></div>
+      <div class="pay-sec"><div class="pay-l">Допродаж · ${gr(upct * 100)}% від викупленого (статус «Продаж»)</div>
+        <div class="pay-dates"><input type="date" data-p="uFrom" value="${P.uFrom}"><span>—</span><input type="date" data-p="uTo" value="${P.uTo}"></div>
+        ${days.length ? `<div class="pay-bar">${bar}</div><div class="pay-lg"><span><i class="done"></i>усе викуплено</span><span><i class="pend"></i>ще в дорозі</span><span><i class="none"></i>без допродажу</span><span class="muted">натисніть на день, щоб рахувати допродаж по нього</span></div>` : ''}</div>
+      <div class="pay-sec"><div class="pay-l">Бонуси, доплати, штрафи</div>
+        <div id="adjRows">${P.adj.map((a, i) => `<div class="adj-row"><input type="text" placeholder="${N(a.amount) < 0 ? 'Штраф' : 'Бонус на день народження'}" value="${esc(a.label || '')}" data-al="${i}"><input type="text" inputmode="decimal" placeholder="0" value="${a.amount ?? ''}" data-aa="${i}" class="${N(a.amount) < 0 ? 'neg' : ''}"><button class="icon-btn" data-ad="${i}" title="Прибрати">${icon('trash')}</button></div>`).join('')}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" data-addadj="1">${icon('plus')}Бонус / доплата</button><button class="btn sm" data-addadj="-1">${icon('plus')}Штраф</button></div>
+        <div class="muted small" style="margin-top:6px">Бонуси й штрафи потрапляють у витрати «${PAY_CAT}» у день виплати і впливають на чистий прибуток.</div></div>
+      <div class="pay-sec"><label class="f" style="max-width:220px">Дата виплати<input type="date" data-p="paidAt" value="${P.paidAt}"></label></div>
+    </section>
+    <section class="card pay-sum">
+      <h2 class="card-t">Виплата ${esc(m.name)} з ${dm(P.oFrom)} по ${dm(P.oTo)}</h2>
+      <div class="stat-list" style="margin-top:10px">
+        <div class="stat-row"><span>${cnt} шт × ${gr(rate)} ₴</span><b>${gr(oPay, true)} ₴</b></div>
+        <div class="stat-row"><span>Допродаж ${ups ? `${dm(P.uFrom)}–${dm(P.uTo)}: ${gr(ups)} ₴ × ${gr(upct * 100)}%` : '— немає'}</span><b>${gr(uPay)} ₴</b></div>
+        ${P.adj.filter((a) => N(a.amount)).map((a) => `<div class="stat-row"><span>${esc(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф'))}</span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b></div>`).join('')}
+      </div>
+      <div class="pay-total"><span>Разом до виплати</span><b>${gr(total)} ₴</b></div>
+      <pre class="pay-text" id="payText">${esc(text)}</pre>
+      <div class="pay-btns"><button class="btn" id="payCopy">${icon('doc')}Скопіювати текст</button><button class="btn primary" id="paySave">${icon('check')}Зберегти виплату</button></div>
+    </section>
+  </div>
+  <section class="card" style="margin-top:14px"><div class="card-h"><div><h2 class="card-t">Історія виплат</h2><div class="card-s">Наступна виплата кожної менеджерки продовжує з дня після останньої</div></div></div>
+    <div class="tw">${hist.length ? `<table class="t"><thead><tr><th>Менеджер</th><th>Дата виплати</th><th>Замовлення</th><th class="n">Шт</th><th>Допродаж</th><th class="n">Бонуси / штрафи</th><th class="n">Разом</th><th></th></tr></thead><tbody>${hist.map((x) => `<tr>
+      <td><b>${esc(mgrName(x.manager_id))}</b></td><td>${fdate(String(x.paid_at).slice(0, 10))}</td><td>${dm(String(x.orders_from).slice(0, 10))}–${dm(String(x.orders_to).slice(0, 10))}</td><td class="n">${int(N(x.orders_cnt))}</td>
+      <td>${x.upsell_to && N(x.upsell_sum) ? `${dm(String(x.upsell_from).slice(0, 10))}–${dm(String(x.upsell_to).slice(0, 10))} · ${uah(N(x.upsell_sum))}` : '—'}</td>
+      <td class="n ${N(x.adj_total) < 0 ? 'neg' : ''}">${N(x.adj_total) ? (N(x.adj_total) > 0 ? '+' : '−') + gr(Math.abs(N(x.adj_total))) + ' ₴' : '—'}</td><td class="n"><b>${gr(N(x.total))} ₴</b></td>
+      <td class="n"><button class="icon-btn" data-pcopy="${x.id}" title="Текст ще раз">${icon('doc')}</button><button class="icon-btn" data-pdel="${x.id}" title="Видалити">${icon('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Виплат ще немає. Збережіть першу — і наступна почнеться з правильних дат.</div>'}</div></section>`;
+  const rerender = () => payoutsPage(renderSeq);
+  $$('[data-pm]').forEach((b) => b.addEventListener('click', () => { S.payMgr = N(b.dataset.pm); S.pay = null; rerender(); }));
+  $$('[data-p]').forEach((inp) => inp.addEventListener('change', () => { const k = inp.dataset.p; if (!inp.value) return; P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
+  $$('[data-uto]').forEach((b) => b.addEventListener('click', () => { P.uTo = b.dataset.uto; P.autoU = false; rerender(); }));
+  $$('[data-addadj]').forEach((b) => b.addEventListener('click', () => { P.adj.push({ label: '', amount: b.dataset.addadj === '-1' ? -100 : '' }); rerender(); }));
+  $$('[data-ad]').forEach((b) => b.addEventListener('click', () => { P.adj.splice(N(b.dataset.ad), 1); rerender(); }));
+  $$('[data-al]').forEach((inp) => inp.addEventListener('change', () => { P.adj[N(inp.dataset.al)].label = inp.value; rerender(); }));
+  $$('[data-aa]').forEach((inp) => inp.addEventListener('change', () => { const v = parseFloat(inp.value.replace(/\s/g, '').replace(',', '.')); P.adj[N(inp.dataset.aa)].amount = Number.isFinite(v) ? v : ''; rerender(); }));
+  const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast('Текст скопійовано — вставте в Telegram'); } catch { prompt('Скопіюйте текст:', t); } };
+  $('#payCopy').addEventListener('click', () => copy(text));
+  $('#paySave').addEventListener('click', async (e) => {
+    if (P.oTo < P.oFrom) return toast('Дата «по» раніше за «з»', true);
+    const clash = mine(m.id).find((x) => String(x.orders_from).slice(0, 10) <= P.oTo && String(x.orders_to).slice(0, 10) >= P.oFrom);
+    if (clash && !(await confirmBox('Періоди перетинаються', `Уже є виплата ${m.name} за ${dm(String(clash.orders_from).slice(0, 10))}–${dm(String(clash.orders_to).slice(0, 10))}. Зберегти все одно?`, 'Зберегти'))) return;
+    e.target.disabled = true;
+    try {
+      const adj = P.adj.filter((a) => N(a.amount)).map((a) => ({ label: (a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim(), amount: N(a.amount) }));
+      const row = await api.insert('mgr_payouts', { manager_id: m.id, paid_at: P.paidAt, orders_from: P.oFrom, orders_to: P.oTo, orders_cnt: cnt, rate, orders_pay: oPay,
+        upsell_from: ups ? P.uFrom : null, upsell_to: P.uTo >= P.uFrom ? P.uTo : (last?.upsell_to || null), upsell_sum: ups, upsell_pct: upct, upsell_pay: uPay,
+        adjustments: adj, adj_total: adjT, total, comment: text, created_by: S.user?.email || null });
+      if (adjT) {
+        const ex = await api.insert('expenses', { date: P.paidAt, category: PAY_CAT, amount: adjT, currency: 'UAH', rate: 1, store_id: null,
+          comment: `${m.name}: ${adj.map((a) => `${a.label} ${a.amount > 0 ? '+' : ''}${gr(a.amount)}`).join(', ')}` });
+        await api.update('mgr_payouts', row.id, { expense_id: ex.id });
+      }
+      S.pay = null; S.data = null; toast('Виплату збережено'); rerender();
+    } catch (err) { toast(err.message, true); e.target.disabled = false; }
+  });
+  $$('[data-pcopy]').forEach((b) => b.addEventListener('click', () => { const x = payouts.find((y) => N(y.id) === N(b.dataset.pcopy)); if (x) copy(x.comment || ''); }));
+  $$('[data-pdel]').forEach((b) => b.addEventListener('click', async () => {
+    const x = payouts.find((y) => N(y.id) === N(b.dataset.pdel)); if (!x) return;
+    if (!(await confirmBox('Видалити виплату?', `${mgrName(x.manager_id)}, ${gr(N(x.total))} ₴. Бонуси й штрафи цієї виплати теж зникнуть з витрат.`))) return;
+    try { if (x.expense_id) await api.remove('expenses', N(x.expense_id)); await api.remove('mgr_payouts', N(x.id)); S.pay = null; S.data = null; toast('Видалено'); rerender(); } catch (err) { toast(err.message, true); }
+  }));
+}
+
 PAGES.managers = async (seq) => {
-  if (S.mgrShift) { $('#page').innerHTML = '<div id="shiftBox"></div>'; await shiftCalendar($('#shiftBox')); return; }
+  if (S.mgrView === 'shift') { $('#page').innerHTML = '<div id="shiftBox"></div>'; await shiftCalendar($('#shiftBox')); return; }
+  if (S.mgrView === 'pay') { await payoutsPage(seq); return; }
   const D = await loadPeriod(); if (seq !== renderSeq) return;
   // Частка прибутку магазину (як «20% від прибутку madona» у старому дашборді): люди з роллю «share» з тим самим ім'ям, що в менеджера
   const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
