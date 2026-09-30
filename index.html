@@ -2697,8 +2697,9 @@ PAGES.vault = async (seq) => {
   const [from, to] = monthRange(m);
   const hFrom = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6, 1); return ymd(d); })();
   const stores = activeStores();
-  const shares = []; // частки (Вікторія) тут не віднімаються — показуємо чистий прибуток магазинів
-  const [all, entriesAll, ...st] = await Promise.all([fetchDays(hFrom, to, null), api.rows('owner_entries').catch(() => []), ...stores.map((x) => fetchDays(hFrom, to, x.id))]);
+  // Частка від прибутку (Вікторія) віднімається за місяць, за який нарахована: сума зі збереженої виплати, інакше — оцінка
+  const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
+  const [all, entriesAll, payoutsAll, ...st] = await Promise.all([fetchDays(hFrom, to, null), api.rows('owner_entries').catch(() => []), api.rows('mgr_payouts').catch(() => []), ...stores.map((x) => fetchDays(hFrom, to, x.id))]);
   if (seq !== renderSeq) return;
   const usd = usdRate();
   const monthNet = (days, key) => series(days, 'month').find((x) => x.key === key)?.net || 0;
@@ -2706,7 +2707,12 @@ PAGES.vault = async (seq) => {
     const storeNets = stores.map((x, i) => ({ st: x, net: monthNet(st[i].days, key) }));
     const total = monthNet(all.days, key);
     const general = total - storeNets.reduce((a, r) => a + r.net, 0);
-    const sh = shares.map((p) => { const base = p.store_id == null ? total : (storeNets.find((r) => r.st.id === N(p.store_id))?.net || 0); return { p, amount: Math.max(0, base) * N(p.value) / 100 }; });
+    const sh = shares.map((p) => {
+      const base = p.store_id == null ? total : (storeNets.find((r) => r.st.id === N(p.store_id))?.net || 0);
+      const mg = S.managers.find((x) => (x.name || '').trim().toLowerCase() === (p.name || '').trim().toLowerCase());
+      const paid = mg && (payoutsAll || []).filter((x) => N(x.manager_id) === mg.id && x.period_kind === 'month' && String(x.orders_from).slice(0, 7) === key);
+      return paid && paid.length ? { p, amount: paid.reduce((a, x) => a + N(x.share_amount), 0), paid: true } : { p, amount: Math.round(Math.max(0, base) * N(p.value) / 100), paid: false };
+    });
     const clothes = total - sh.reduce((a, r) => a + r.amount, 0);
     const ent = (entriesAll || []).filter((e) => e.month === key);
     const inc = ent.filter((e) => e.kind === 'income').reduce((a, e) => a + N(e.amount_uah), 0);
@@ -2732,7 +2738,7 @@ PAGES.vault = async (seq) => {
         ${C.storeNets.map((r) => `<div class="stat-row"><span>${storeTag(r.st.id)}</span><b class="${r.net < 0 ? 'neg' : ''}">${uah(r.net)}</b></div>`).join('')}
         ${Math.abs(C.general) >= 1 ? `<div class="stat-row"><span>Загальні витрати / без сайту</span><b>${uah(C.general)}</b></div>` : ''}
         <div class="stat-row" style="font-weight:700;border-top:1px solid var(--line)"><span>Разом одяг</span><b>${uah(C.total)}</b></div>
-        ${C.sh.map((r) => `<div class="stat-row sub"><span>− ${esc(r.p.name)}: ${nf2.format(N(r.p.value))}% від ${esc(r.p.store_id == null ? 'бізнесу' : storeLabel(r.p.store_id))}</span><b class="neg">−${uah(r.amount)}</b></div>`).join('')}
+        ${C.sh.map((r) => `<div class="stat-row sub"><span>− ${esc(r.p.name)}: ${nf2.format(N(r.p.value))}% від ${esc(r.p.store_id == null ? 'бізнесу' : storeLabel(r.p.store_id))} <span class="muted small">${r.paid ? '· виплачено' : '· оцінка, ще не виплачено'}</span></span><b class="neg">−${uah(r.amount)}</b></div>`).join('')}
         <div class="stat-row" style="font-weight:700"><span>Прибуток з одягу</span><b>${uah(C.clothes)} <span class="muted small">${usdS(C.clothes)}</span></b></div>
       </div></section>
     <section class="card c7"><div class="card-h"><div><h2 class="card-t">Інші доходи й витрати за ${mName}</h2><div class="card-s">Напр. «Конструктори» — дохід; особисті витрати, яких немає в дашборді одягу</div></div><button class="btn sm" id="vCopy">Скопіювати з минулого місяця</button></div>
