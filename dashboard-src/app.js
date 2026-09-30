@@ -144,9 +144,19 @@ const CHANNELS = [
 const channelOf = (u) => { if (!u) return 'Без мітки'; for (const [n, re] of CHANNELS) if (re.test(u)) return n; return u; };
 
 function emptyDay() { return { pending: 0, leads: 0, confirmed: 0, unconfirmed: 0, success: 0, fail: 0, returns: 0, work: 0, sales: 0, revenue: 0, cogs: 0, order_costs: 0, return_costs: 0, payed: 0, upsell: 0, ads: 0, other: 0,
-  card: 0, cpoAds: 0, cpoOrd: 0, mLeads: 0, mConf: 0, mOrders: 0, mImpr: 0, mClicks: 0, archDays: 0, byCat: {}, adsByCh: {}, byRule: {} }; }
+  card: 0, cpoAds: 0, cpoOrd: 0, adsUsd: 0, cpoAdsUsd: 0, mLeads: 0, mConf: 0, mOrders: 0, mImpr: 0, mClicks: 0, archDays: 0, byCat: {}, adsByCh: {}, byRule: {} }; }
 const MGR_CAT = 'Зарплата менеджерів';
 const usdRate = () => N(S.settings.usd_rate) || 45;
+// Історія: нове значення діє з дати зміни, минулі дні — за тим, що діяло тоді
+const usdHist = () => (Array.isArray(S.settings.usd_rate_history) ? S.settings.usd_rate_history : []).filter((h) => N(h.rate) > 0).sort((a, b) => String(a.from).localeCompare(String(b.from)));
+function usdOn(day) { let r = null; for (const h of usdHist()) if (String(h.from) <= day) r = N(h.rate); return r || usdRate(); }
+function rateOn(mid, day) {
+  let best = null;
+  for (const r of S.mgrRates || []) if (N(r.manager_id) === N(mid) && String(r.valid_from).slice(0, 10) <= day && (!best || String(r.valid_from) > String(best.valid_from))) best = r;
+  const m = S.managers.find((x) => x.id === N(mid)) || {};
+  return best ? { rate: N(best.rate_per_order), pct: N(best.upsell_pct) } : { rate: N(m.rate_per_order), pct: N(m.upsell_pct) };
+}
+const mgrPayRow = (r) => { const q = rateOn(r.manager_id, String(r.day).slice(0, 10)); return { o: q.rate * N(r.sales), u: q.pct * N(r.upsell) }; };
 
 // Будує денний P&L: дані замовлень + ручні витрати + правила + з/п менеджерів
 function buildDays(from, to, daily, expenses, rules, mgrDaily, managers, settings, storeDays = {}, payMap = {}, manual = []) {
@@ -195,10 +205,11 @@ function buildDays(from, to, daily, expenses, rules, mgrDaily, managers, setting
     const mm = new Map(managers.map((m) => [m.id, m]));
     for (const r of mgrDaily) {
       const x = days[String(r.day).slice(0, 10)]; const m = mm.get(N(r.manager_id)); if (!x || !m) continue;
-      const v = N(m.rate_per_order) * N(r.sales) + N(m.upsell_pct) * N(r.upsell);
+      const q = mgrPayRow(r); const v = q.o + q.u;
       if (v) { x.other += v; add(x, MGR_CAT, v); }
     }
   }
+  for (const [d, x] of Object.entries(days)) { const u = usdOn(d); x.adsUsd = x.ads / u; x.cpoAdsUsd = x.cpoAds / u; }
   return days;
 }
 // Розбивка «Інших витрат» по категоріях (для підказки та карток магазинів)
@@ -225,9 +236,9 @@ function totals(list) {
     romi: div(gross - t.ads, t.ads), cpl: div(t.ads, t.leads), cpo: t.ads ? div(t.ads, t.sales) : null, drr: div(t.ads, t.revenue),
     // показники старого дашборду одягу
     roas: t.ads ? div(t.revenue, t.ads) : null,
-    cplUsd: t.ads ? div(t.ads / usdRate(), t.leads) : null,
-    cpoFactUsd: t.ads ? div(t.ads / usdRate(), t.confirmed) : null,
-    cpoPlanUsd: t.cpoOrd ? div(t.cpoAds / usdRate(), t.cpoOrd) : null,
+    cplUsd: t.ads ? div(t.adsUsd, t.leads) : null,
+    cpoFactUsd: t.ads ? div(t.adsUsd, t.confirmed) : null,
+    cpoPlanUsd: t.cpoOrd ? div(t.cpoAdsUsd, t.cpoOrd) : null,
     mgrPay: N(t.byCat[MGR_CAT]),
   });
 }
@@ -279,6 +290,7 @@ S.group = autoGroup(S.from, S.to);
 async function loadRefs() {
   const [settings, statuses, managers, rules, stores, people, fops] = await Promise.all([api.settings(), api.list('statuses'), api.list('managers'), api.list('rules'), api.list('stores'), api.list('people').catch(() => []), api.list('fops').catch(() => [])]);
   S.settings = settings; S.statuses = statuses; S.managers = managers; S.rules = rules; S.stores = stores; S.people = people || []; S.fops = fops || [];
+  S.mgrRates = await api.rows('manager_rates').catch(() => []);
   applyStoreColors();
   if (S.store != null && !activeStores().some((x) => x.id === S.store)) { S.store = null; store.set('store', null); }
 }
@@ -1060,7 +1072,7 @@ PAGES.ads = async (seq) => {
   const hasMeta = T.mLeads || T.mImpr || T.mClicks;
   $('#page').innerHTML = `${archiveHint(T)}
   <div class="kpis">
-    ${kpi('Витрачено на рекламу', uah(T.ads), `${usdf(T.ads / usdRate())} · ДРР ${pct(T.drr)} від виручки`, delta(T.ads, PT.ads, { invert: true }))}
+    ${kpi('Витрачено на рекламу', uah(T.ads), `${usdf(T.adsUsd)} · ДРР ${pct(T.drr)} від виручки`, delta(T.ads, PT.ads, { invert: true }))}
     ${kpi('ROAS', T.roas == null ? '—' : T.roas.toFixed(2).replace('.', ',') + 'x', targetFlag(T.roas, tg.roas, 'higher', (v) => v + 'x') || 'виручка / реклама', delta(T.roas, PT.roas))}
     ${kpi('Ціна ліда', usdf(T.cplUsd), targetFlag(T.cplUsd, tg.cpl_usd, 'lower', usdf) || 'реклама / усі заявки', delta(T.cplUsd, PT.cplUsd, { invert: true }))}
     ${kpi('CPO план / факт', `${usdf(T.cpoPlanUsd)} / ${usdf(T.cpoFactUsd)}`, 'реклама / підтверджені: план — на момент внесення реклами')}
@@ -1271,13 +1283,18 @@ async function payoutsPage(seq) {
   const sum = (from, to, k) => Object.entries(dayAgg).filter(([d]) => d >= from && d <= to).reduce((s, [, a]) => s + a[k], 0);
   const cnt = sum(P.oFrom, P.oTo, 'sales');
   const ups = P.uTo >= P.uFrom ? sum(P.uFrom, P.uTo, 'ups') : 0;
-  const rate = N(m.rate_per_order), upct = N(m.upsell_pct);
-  const oPay = cnt * rate, uPay = Math.round(ups * upct * 100) / 100;
+  // Кожен день — за ставкою, що діяла того дня (якщо ставку змінили посеред періоду — буде дві частини)
+  const byRate = (from, to, k, f) => { const g = new Map(); for (const [d, a] of Object.entries(dayAgg)) { if (d < from || d > to || !a[k]) continue; const v = f(rateOn(m.id, d)); g.set(v, (g.get(v) || 0) + a[k]); } return [...g.entries()].sort((x, y) => x[0] - y[0]); };
+  const oParts = byRate(P.oFrom, P.oTo, 'sales', (q) => q.rate), uParts = P.uTo >= P.uFrom ? byRate(P.uFrom, P.uTo, 'ups', (q) => q.pct) : [];
+  const rate = rateOn(m.id, P.oTo).rate, upct = rateOn(m.id, P.uTo >= P.uFrom ? P.uTo : P.oTo).pct;
+  const oPay = oParts.reduce((s, [r, n]) => s + r * n, 0), uPay = Math.round(uParts.reduce((s, [p, v]) => s + p * v, 0) * 100) / 100;
+  const oExpr = oParts.length > 1 ? oParts.map(([r, n]) => `${n} шт. * ${gr(r)} грн.`).join(' + ') : `${cnt} шт. * ${gr(rate)} грн.`;
+  const uExpr = uParts.length > 1 ? uParts.map(([p, v]) => `${gr(v)} грн.* ${gr(p * 100)}%`).join(' + ') : `${gr(ups)} грн.* ${gr(upct * 100)}%`;
   const adjT = P.adj.reduce((s, a) => s + N(a.amount), 0);
   const total = oPay + uPay + adjT;
   const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}`, '',
-    `К-ть замовлень: ${cnt} шт. * ${gr(rate)} грн. = ${gr(oPay, true)} грн.`,
-    ups ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн.* ${gr(upct * 100)}% = ${gr(uPay)} грн.` : null,
+    oParts.length > 1 ? `К-ть замовлень: ${cnt} шт. (${oExpr}) = ${gr(oPay, true)} грн.` : `К-ть замовлень: ${oExpr} = ${gr(oPay, true)} грн.`,
+    ups ? (uParts.length > 1 ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн. (${uExpr}) = ${gr(uPay)} грн.` : `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${uExpr} = ${gr(uPay)} грн.`) : null,
     ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
     '', `Разом до виплати: ${gr(total)} грн.`].filter((x) => x !== null).join('\n');
   // Смужка днів допродажу
@@ -1306,8 +1323,8 @@ async function payoutsPage(seq) {
     <section class="card pay-sum">
       <h2 class="card-t">Виплата ${esc(m.name)} з ${dm(P.oFrom)} по ${dm(P.oTo)}</h2>
       <div class="stat-list" style="margin-top:10px">
-        <div class="stat-row"><span>${cnt} шт × ${gr(rate)} ₴</span><b>${gr(oPay, true)} ₴</b></div>
-        <div class="stat-row"><span>Допродаж ${ups ? `${dm(P.uFrom)}–${dm(P.uTo)}: ${gr(ups)} ₴ × ${gr(upct * 100)}%` : '— немає'}</span><b>${gr(uPay)} ₴</b></div>
+        ${(oParts.length ? oParts : [[rate, 0]]).map(([r, n]) => `<div class="stat-row"><span>${n} шт × ${gr(r)} ₴</span><b>${gr(r * n, true)} ₴</b></div>`).join('')}
+        ${uParts.length ? uParts.map(([p, v]) => `<div class="stat-row"><span>Допродаж ${dm(P.uFrom)}–${dm(P.uTo)}: ${gr(v)} ₴ × ${gr(p * 100)}%</span><b>${gr(Math.round(p * v * 100) / 100)} ₴</b></div>`).join('') : '<div class="stat-row"><span>Допродаж — немає</span><b>0 ₴</b></div>'}
         ${P.adj.filter((a) => N(a.amount)).map((a) => `<div class="stat-row"><span>${esc(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф'))}</span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b></div>`).join('')}
       </div>
       <div class="pay-total"><span>Разом до виплати</span><b>${gr(total)} ₴</b></div>
@@ -1368,9 +1385,10 @@ PAGES.managers = async (seq) => {
   if (seq !== renderSeq) return;
   const shareOf = (name) => shares.filter((p) => (p.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
     .map((p) => { const net = N(stNet[p.store_id == null ? null : N(p.store_id)]); return { p, net, amount: Math.max(0, net) * N(p.value) / 100 }; });
+  const payBy = {}; for (const r of D.mgrDaily || []) { const q = mgrPayRow(r); const a = payBy[N(r.manager_id)] = payBy[N(r.manager_id)] || { o: 0, u: 0 }; a.o += q.o; a.u += q.u; }
   const rows = D.mstats.map((r) => {
     const m = S.managers.find((x) => x.id === N(r.manager_id)) || {};
-    const orderPay = N(m.rate_per_order) * N(r.paid_orders), upsellPay = N(m.upsell_pct) * N(r.upsell);
+    const orderPay = (payBy[N(r.manager_id)] || {}).o || 0, upsellPay = (payBy[N(r.manager_id)] || {}).u || 0;
     const sh = shareOf(mgrName(r.manager_id)); const shareAmt = sh.reduce((a, x) => a + x.amount, 0);
     return { ...r, name: mgrName(r.manager_id), m, orderPay, upsellPay, sh, shareAmt, pay: orderPay + upsellPay, total: orderPay + upsellPay + shareAmt, conv: div(N(r.success), N(r.leads)), refuse: div(N(r.fail) + N(r.returns), N(r.success) + N(r.fail) + N(r.returns)) };
   }).filter((r) => N(r.leads) || N(r.sales) || N(r.paid_orders)).sort((a, b) => b.pay - a.pay);
@@ -1404,7 +1422,7 @@ PAGES.managers = async (seq) => {
     </section>`).join('') || '<div class="card"><div class="empty">Немає даних про менеджерів за період</div></div>'}</div>
   <section class="card" style="margin-top:14px"><div class="card-h"><div><h2 class="card-t">По днях</h2><div class="card-s">Допродаж рахується автоматично з CRM. Олівцем можна виправити суму за день: ручна правка має пріоритет і не затирається синхронізацією.</div></div></div>
     <div class="tw tbl-scroll" style="max-height:520px"><table class="t"><thead><tr><th>Дата</th><th>Менеджер</th><th>Магазин</th><th class="n">Підтв. + відмови</th><th class="n">Допродаж усього</th><th class="n">Допродаж продано</th><th class="n">З/п</th></tr></thead><tbody>${det.map((r) => {
-      const m = S.managers.find((x) => x.id === N(r.manager_id)) || {}; const pay = N(m.rate_per_order) * N(r.sales) + N(m.upsell_pct) * N(r.upsell);
+      const q = mgrPayRow(r); const pay = q.o + q.u;
       const d = String(r.day).slice(0, 10);
       return `<tr><td style="white-space:nowrap">${fdate(d)}${r.archived ? ' <span class="pill work">архів</span>' : ''}</td><td><b>${esc(mgrName(r.manager_id))}</b></td><td>${storeTag(r.store_id)}</td><td class="n">${int(N(r.sales))}</td><td class="n muted">${uah(N(r.upsell_potential))}</td>
         <td class="n">${r.archived ? uah(N(r.upsell)) : `<button class="cell-edit" data-up="${r.manager_id}|${r.store_id}|${d}|${N(r.upsell)}|${N(r.upsell_auto)}|${r.adjusted ? 1 : 0}" title="${r.adjusted ? `Виправлено вручну. Автоматично: ${uah(N(r.upsell_auto))}` : 'Виправити вручну'}">${uah(N(r.upsell))}${r.adjusted ? ' ✎' : ''}${icon('edit')}</button>`}</td>
@@ -2105,6 +2123,7 @@ PAGES.fop = async (seq) => {
 
 // ================================================================ НАЛАШТУВАННЯ
 PAGES.settings = async (seq) => {
+  const today = ymd(new Date());
   const [log, meta, dsample] = await Promise.all([api.list('sync_log'), api.rpc('stats_overview_meta', {}), api.rpc('delivery_sample', {}).catch(() => [])]);
   S.statuses = await api.list('statuses'); S.managers = await api.list('managers'); S.stores = await api.list('stores');
   if (seq !== renderSeq) return;
@@ -2128,7 +2147,7 @@ PAGES.settings = async (seq) => {
     <section class="card c6"><div class="card-h"><div><h2 class="card-t">Основне</h2></div></div>
       <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
         <label class="f" style="grid-column:span 2">Назва в меню<input type="text" id="sName" value="${esc(st.store_name || '')}" placeholder="Одяг"></label>
-        <label class="f">Курс долара, ₴<input type="text" id="sUsd" inputmode="decimal" value="${esc(st.usd_rate ?? '')}"></label>
+        <label class="f">Курс долара, ₴<input type="text" id="sUsd" inputmode="decimal" value="${esc(st.usd_rate ?? '')}"><span class="muted small" style="font-weight:400">${usdHist().length > 1 ? 'Історія: ' + usdHist().map((h, i) => `${nf2.format(N(h.rate))} ${i ? 'з ' + fdate(h.from) : '(спочатку)'}`).join(' → ') : 'Новий курс діє з дня зміни'}</span></label>
         <label class="f">Курс євро, ₴<input type="text" id="sEur" inputmode="decimal" value="${esc(st.eur_rate ?? '')}"></label>
         <label class="f" style="grid-column:span 2">Сума за одну відмову, ₴<input type="text" id="sRefCost" inputmode="decimal" value="${esc(st.refusal_cost_default ?? '')}" placeholder="105"></label>
       </div>
@@ -2162,7 +2181,10 @@ PAGES.settings = async (seq) => {
       <div class="tw"><table class="t"><thead><tr><th>Статус</th><th>Як рахувати</th><th>Підтверджене</th></tr></thead><tbody>${S.statuses.map((s) => `<tr><td>${esc(s.name)} ${s.manual ? '<span class="muted small">змінено вручну</span>' : ''}</td><td><select data-st="${s.id}" style="max-width:220px">${Object.entries(CAT).map(([k, v]) => `<option value="${k}" ${k === s.category ? 'selected' : ''}>${v}</option>`).join('')}</select></td><td><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-conf="${s.id}" ${s.confirmed ? 'checked' : ''}>так</label></td></tr>`).join('') || '<tr><td colspan="3" class="empty">Статуси з’являться після першої синхронізації</td></tr>'}</tbody></table></div></section>
 
     <section class="card c5"><div class="card-h"><div><h2 class="card-t">Менеджери</h2><div class="card-s">З’являються автоматично із замовлень. Ставка — за кожне замовлення, що стало підтвердженим або відмовою; % — від допродажу по викуплених.</div></div></div>
-      <div class="tw"><table class="t"><thead><tr><th>ID</th><th>Ім’я</th><th>₴ за замовл.</th><th>% допрод.</th></tr></thead><tbody>${S.managers.map((mg) => `<tr data-mg="${mg.id}"><td class="muted">${mg.id}</td><td><input type="text" data-f="name" value="${esc(mg.name || '')}" placeholder="Ім’я"></td><td><input type="text" data-f="rate_per_order" inputmode="decimal" value="${N(mg.rate_per_order) || ''}" style="width:80px"></td><td><input type="text" data-f="upsell_pct" inputmode="decimal" value="${N(mg.upsell_pct) ? Math.round(N(mg.upsell_pct) * 100) : ''}" style="width:70px"></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Поки немає</td></tr>'}</tbody></table></div>
+      <div class="tw"><table class="t"><thead><tr><th>ID</th><th>Ім’я</th><th>₴ за замовл.</th><th>% допрод.</th></tr></thead><tbody>${S.managers.map((mg) => { const q = rateOn(mg.id, today); return `<tr data-mg="${mg.id}"><td class="muted">${mg.id}</td><td><input type="text" data-f="name" value="${esc(mg.name || '')}" placeholder="Ім’я"></td><td><input type="text" data-f="rate_per_order" inputmode="decimal" value="${q.rate || ''}" style="width:80px"></td><td><input type="text" data-f="upsell_pct" inputmode="decimal" value="${q.pct ? Math.round(q.pct * 10000) / 100 : ''}" style="width:70px"></td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Поки немає</td></tr>'}</tbody></table></div>
+      ${S.managers.length ? `<label class="f" style="margin-top:12px;max-width:220px">Нові ставки діють з<input type="date" id="mgFrom" value="${today}"></label>
+      <div class="muted small" style="margin-top:6px">Минулі дні рахуються за ставками, що діяли тоді. Змінюйте ставку тут — архів і збережені виплати не перераховуються.</div>
+      <div class="rate-hist">${S.managers.map((mg) => { const h = (S.mgrRates || []).filter((r) => N(r.manager_id) === mg.id).sort((a, b) => String(a.valid_from).localeCompare(String(b.valid_from))); return h.length > 1 ? `<div><b>${esc(mg.name || '#' + mg.id)}:</b> ${h.map((r, i) => `<span class="rh">${gr(N(r.rate_per_order))} ₴ · ${gr(N(r.upsell_pct) * 100)}% ${i ? `з ${fdate(String(r.valid_from).slice(0, 10))} <button class="icon-btn" data-rdel="${mg.id}|${String(r.valid_from).slice(0, 10)}" title="Скасувати цю зміну">${icon('trash')}</button>` : '(спочатку)'}</span>`).join(' → ')}</div>` : ''; }).join('')}</div>` : ''}
       ${S.managers.length ? '<div style="margin-top:12px"><button class="btn primary" id="mgSave">Зберегти менеджерів</button></div>' : ''}</section>
 
     <section class="card c12"><div class="card-h"><div><h2 class="card-t">Вартість повернення посилок</h2><div class="card-s">Останні відмови з ТТН і яку вартість доставки вдалося взяти з SalesDrive. Якщо скрізь «не знайдено», надішліть скрін цього блоку.</div></div></div>
@@ -2202,6 +2224,12 @@ PAGES.settings = async (seq) => {
       targets: { roas: numv('#tRoas'), cpl_usd: numv('#tCpl'), romi: numv('#tRomi') != null ? numv('#tRomi') / 100 : null, cpo: numv('#tCpo'), conversion: numv('#tConv') != null ? numv('#tConv') / 100 : null },
       expense_categories: cats, ad_channels: split($('#sChans').value),
     };
+    // Курс долара: новий діє з сьогодні, минулі дні — за попереднім
+    if (Math.abs(N(upd.usd_rate) - usdOn(ymd(new Date()))) > 0.0001) {
+      const today = ymd(new Date()); let h = usdHist().filter((x) => x.from !== today);
+      if (!h.length) h = [{ from: '2000-01-01', rate: usdRate() }];
+      upd.usd_rate_history = [...h, { from: today, rate: N(upd.usd_rate) }];
+    }
     try { for (const [k, v] of Object.entries(upd)) await api.setSetting(k, v); Object.assign(S.settings, upd); S.data = null; $('.logo-t').textContent = rememberBrand(upd.store_name); toast('Налаштування збережено'); }
     catch (e) { toast(e.message, true); }
   });
@@ -2220,14 +2248,35 @@ PAGES.settings = async (seq) => {
     } catch (e) { toast(e.message, true); }
   });
   $('#mgSave')?.addEventListener('click', async () => {
+    const from = $('#mgFrom')?.value || ymd(new Date());
     try {
+      let changed = 0;
       for (const tr of $$('[data-mg]')) {
+        const id = N(tr.dataset.mg);
         const v = (f) => $(`[data-f="${f}"]`, tr).value.trim(); const n = (f) => parseFloat(v(f).replace(',', '.')) || 0;
-        await api.update('managers', N(tr.dataset.mg), { name: v('name') || null, rate_per_order: n('rate_per_order'), upsell_pct: n('upsell_pct') / 100 });
+        const rate = n('rate_per_order'), pctv = Math.round(n('upsell_pct') * 100) / 10000;
+        const cur = rateOn(id, from);
+        const patch = { name: v('name') || null };
+        if (Math.abs(cur.rate - rate) > 0.001 || Math.abs(cur.pct - pctv) > 0.00001) {
+          // перша зміна: зберігаємо попередню ставку як «з самого початку», щоб минуле не змінилось
+          if (!(S.mgrRates || []).some((r) => N(r.manager_id) === id)) await api.upsert('manager_rates', { manager_id: id, valid_from: '2000-01-01', rate_per_order: cur.rate, upsell_pct: cur.pct, created_by: 'initial' }, 'manager_id,valid_from');
+          await api.upsert('manager_rates', { manager_id: id, valid_from: from, rate_per_order: rate, upsell_pct: pctv, created_by: S.user?.email || null }, 'manager_id,valid_from');
+          changed++;
+        }
+        await api.update('managers', id, patch);
       }
-      S.managers = await api.list('managers'); S.data = null; toast('Менеджерів збережено');
+      S.mgrRates = await api.rows('manager_rates').catch(() => []);
+      for (const mg of S.managers) { const q = rateOn(mg.id, ymd(new Date())); await api.update('managers', mg.id, { rate_per_order: q.rate, upsell_pct: q.pct }); }
+      S.managers = await api.list('managers'); S.data = null; toast(changed ? `Збережено. Нові ставки діють з ${fdate(from)}` : 'Менеджерів збережено'); render();
     } catch (e) { toast(e.message, true); }
   });
+  $$('[data-rdel]').forEach((b) => b.addEventListener('click', async () => {
+    const [mid, day] = b.dataset.rdel.split('|');
+    if (!(await confirmBox('Скасувати зміну ставки?', `${mgrName(mid)} — з ${fdate(day)} знову діятиме попередня ставка.`, 'Скасувати зміну'))) return;
+    try { await api.removeWhere('manager_rates', { manager_id: N(mid), valid_from: day }); S.mgrRates = await api.rows('manager_rates').catch(() => []);
+      for (const mg of S.managers) { const q = rateOn(mg.id, ymd(new Date())); await api.update('managers', mg.id, { rate_per_order: q.rate, upsell_pct: q.pct }); }
+      S.managers = await api.list('managers'); S.data = null; toast('Зміну скасовано'); render(); } catch (e) { toast(e.message, true); }
+  }));
 };
 
 // ---------------------------------------------------------------- синхронізація
