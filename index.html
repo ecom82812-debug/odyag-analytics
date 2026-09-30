@@ -2137,7 +2137,16 @@ async function payoutsPage(seq) {
   };
   const m = mgrs.find((x) => x.id === S.payMgr);
   const last = mine(m.id)[0];
-  const P = S.pay && S.pay.mid === m.id ? S.pay : (S.pay = (() => {
+  // Частка від прибутку магазину (Вікторія): виплата раз на місяць, за минулий місяць
+  const shareP = (S.people || []).find((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit' && (p.name || '').trim().toLowerCase() === (m.name || '').trim().toLowerCase());
+  const monthly = !!shareP;
+  const monthEnd = (mo) => addDays(mo + '-01', dim(mo + '-01') - 1);
+  const P = S.pay && S.pay.mid === m.id ? S.pay : (S.pay = monthly ? (() => {
+    const mo = last ? addDays(String(last.orders_to).slice(0, 10), 1).slice(0, 7) : addDays(today.slice(0, 8) + '01', -1).slice(0, 7);
+    const oFrom = mo + '-01', oTo = monthEnd(mo);
+    const uFrom = last && last.upsell_to ? addDays(String(last.upsell_to).slice(0, 10), 1) : oFrom;
+    return { mid: m.id, month: mo, oFrom, oTo, uFrom, uTo: null, adj: [], paidAt: today, autoU: true, share: null };
+  })() : (() => {
     const oFrom = last ? addDays(String(last.orders_to).slice(0, 10), 1) : (today.slice(8) > '16' ? today.slice(0, 8) + '16' : today.slice(0, 8) + '01');
     const oTo = shiftEnd(m.id, oFrom) || addDays(today, -1);
     const uFrom = last && last.upsell_to ? addDays(String(last.upsell_to).slice(0, 10), 1) : oFrom;
@@ -2163,13 +2172,22 @@ async function payoutsPage(seq) {
   const oPay = oParts.reduce((s, [r, n]) => s + r * n, 0), uPay = Math.round(uParts.reduce((s, [p, v]) => s + p * v, 0) * 100) / 100;
   const oExpr = oParts.length > 1 ? oParts.map(([r, n]) => `${n} шт. * ${gr(r)} грн.`).join(' + ') : `${cnt} шт. * ${gr(rate)} грн.`;
   const uExpr = uParts.length > 1 ? uParts.map(([p, v]) => `${gr(v)} грн.* ${gr(p * 100)}%`).join(' + ') : `${gr(ups)} грн.* ${gr(upct * 100)}%`;
+  let shareNet = 0, shareAuto = 0;
+  if (monthly) {
+    const k = `${P.oFrom}|${P.oTo}|${shareP.store_id}`;
+    if (!S.payShareCache || S.payShareCache.k !== k) { const dd = await fetchDays(P.oFrom, P.oTo, shareP.store_id == null ? null : N(shareP.store_id)); S.payShareCache = { k, net: totals(Object.values(dd.days)).net }; if (seq !== renderSeq) return; }
+    shareNet = S.payShareCache.net; shareAuto = Math.round(Math.max(0, shareNet) * N(shareP.value) / 100);
+  }
+  const share = monthly ? (P.share != null ? P.share : shareAuto) : 0;
   const adjT = P.adj.reduce((s, a) => s + N(a.amount), 0);
-  const total = oPay + uPay + adjT;
-  const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}`, '',
+  const total = oPay + uPay + adjT + share;
+  const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}${monthly ? '.' + P.oTo.slice(0, 4) : ''}`, '',
+    monthly ? `% від чистого прибутку: ${gr(share)} грн.` : null,
     oParts.length > 1 ? `К-ть замовлень: ${cnt} шт. (${oExpr}) = ${gr(oPay, true)} грн.` : `К-ть замовлень: ${oExpr} = ${gr(oPay, true)} грн.`,
+    monthly && !ups ? 'Допродаж на суму: 0 грн.' : null,
     ups ? (uParts.length > 1 ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн. (${uExpr}) = ${gr(uPay)} грн.` : `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${uExpr} = ${gr(uPay)} грн.`) : null,
     ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
-    '', `Разом до виплати: ${gr(total)} грн.`].filter((x) => x !== null).join('\n');
+    '', `Разом до виплати: ${gr(total, monthly)} грн.`].filter((x) => x !== null).join('\n');
   // Смужка днів допродажу
   const days = []; for (let d = P.uFrom; d <= P.oTo && days.length < 62; d = addDays(d, 1)) days.push(d);
   const bar = days.map((d) => { const a = dayAgg[d] || { ups: 0, pot: 0 }; const pend = pending(d); const inU = d <= P.uTo;
@@ -2181,6 +2199,13 @@ async function payoutsPage(seq) {
   <div class="pay-grid">
     <section class="card">
       <div class="card-h"><div><h2 class="card-t">Нова виплата · ${esc(m.name)}</h2><div class="card-s">${last ? `Минула виплата: замовлення по ${fdate(String(last.orders_to).slice(0, 10))}, допродаж по ${fdate(String(last.upsell_to || last.orders_to).slice(0, 10))}` : 'Це перша виплата в системі — перевірте дати початку'}</div></div></div>
+      ${monthly ? `<div class="pay-sec"><div class="pay-l">Виплата раз на місяць · за який місяць</div>
+        <input type="month" data-p="month" value="${P.month || P.oFrom.slice(0, 7)}" class="month-in">
+        <div class="muted small" style="margin-top:6px">Зазвичай — за минулий місяць. Замовлення й прибуток беруться за весь обраний місяць.</div></div>
+      <div class="pay-sec"><div class="pay-l">% від чистого прибутку · ${gr(N(shareP.value))}% від ${esc(shareP.store_id == null ? 'бізнесу' : storeLabel(shareP.store_id))}</div>
+        <div class="muted small" style="margin-bottom:6px">Чистий прибуток ${esc(shareP.store_id == null ? 'бізнесу' : storeLabel(shareP.store_id))} за ${MONTHS[+P.oFrom.slice(5, 7) - 1].toLowerCase()}: <b>${uah(shareNet)}</b> → ${gr(N(shareP.value))}% = <b>${gr(shareAuto)} ₴</b></div>
+        <div style="display:flex;gap:8px;align-items:center;max-width:320px"><input type="text" inputmode="decimal" id="shareIn" value="${gr(share).replace(/\s/g, '')}"><span>₴</span>${P.share != null ? '<button class="btn sm" id="shareAuto">Авто</button>' : ''}</div>
+        ${P.share != null ? '<div class="muted small" style="margin-top:4px">Сума виправлена вручну</div>' : ''}</div>` : ''}
       <div class="pay-sec"><div class="pay-l">Замовлення · ${gr(rate)} ₴ за підтверджене або відмову</div>
         <div class="pay-dates"><input type="date" data-p="oFrom" value="${P.oFrom}"><span>—</span><input type="date" data-p="oTo" value="${P.oTo}"></div>
         <div class="muted small">${shiftEnd(m.id, P.oFrom) ? `Кінець останньої зміни — ${fdate(shiftEnd(m.id, P.oFrom))} (з графіка змін)` : 'Зміну в графіку не знайдено — вкажіть дату вручну'}</div></div>
@@ -2194,8 +2219,9 @@ async function payoutsPage(seq) {
       <div class="pay-sec"><label class="f" style="max-width:220px">Дата виплати<input type="date" data-p="paidAt" value="${P.paidAt}"></label></div>
     </section>
     <section class="card pay-sum">
-      <h2 class="card-t">Виплата ${esc(m.name)} з ${dm(P.oFrom)} по ${dm(P.oTo)}</h2>
+      <h2 class="card-t">Виплата ${esc(m.name)} з ${dm(P.oFrom)} по ${dm(P.oTo)}${monthly ? '.' + P.oTo.slice(0, 4) : ''}</h2>
       <div class="stat-list" style="margin-top:10px">
+        ${monthly ? `<div class="stat-row"><span>% від чистого прибутку (${gr(N(shareP.value))}%)</span><b>${gr(share)} ₴</b></div>` : ''}
         ${(oParts.length ? oParts : [[rate, 0]]).map(([r, n]) => `<div class="stat-row"><span>${n} шт × ${gr(r)} ₴</span><b>${gr(r * n, true)} ₴</b></div>`).join('')}
         ${uParts.length ? uParts.map(([p, v]) => `<div class="stat-row"><span>Допродаж ${dm(P.uFrom)}–${dm(P.uTo)}: ${gr(v)} ₴ × ${gr(p * 100)}%</span><b>${gr(Math.round(p * v * 100) / 100)} ₴</b></div>`).join('') : '<div class="stat-row"><span>Допродаж — немає</span><b>0 ₴</b></div>'}
         ${P.adj.filter((a) => N(a.amount)).map((a) => `<div class="stat-row"><span>${esc(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф'))}</span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b></div>`).join('')}
@@ -2206,14 +2232,19 @@ async function payoutsPage(seq) {
     </section>
   </div>
   <section class="card" style="margin-top:14px"><div class="card-h"><div><h2 class="card-t">Історія виплат</h2><div class="card-s">Наступна виплата кожної менеджерки продовжує з дня після останньої</div></div></div>
-    <div class="tw">${hist.length ? `<table class="t"><thead><tr><th>Менеджер</th><th>Дата виплати</th><th>Замовлення</th><th class="n">Шт</th><th>Допродаж</th><th class="n">Бонуси / штрафи</th><th class="n">Разом</th><th></th></tr></thead><tbody>${hist.map((x) => `<tr>
+    <div class="tw">${hist.length ? `<table class="t"><thead><tr><th>Менеджер</th><th>Дата виплати</th><th>Замовлення</th><th class="n">Шт</th><th>Допродаж</th><th class="n">% від прибутку</th><th class="n">Бонуси / штрафи</th><th class="n">Разом</th><th></th></tr></thead><tbody>${hist.map((x) => `<tr>
       <td><b>${esc(mgrName(x.manager_id))}</b></td><td>${fdate(String(x.paid_at).slice(0, 10))}</td><td>${dm(String(x.orders_from).slice(0, 10))}–${dm(String(x.orders_to).slice(0, 10))}</td><td class="n">${int(N(x.orders_cnt))}</td>
       <td>${x.upsell_to && N(x.upsell_sum) ? `${dm(String(x.upsell_from).slice(0, 10))}–${dm(String(x.upsell_to).slice(0, 10))} · ${uah(N(x.upsell_sum))}` : '—'}</td>
+      <td class="n">${N(x.share_amount) ? gr(N(x.share_amount)) + ' ₴' : '—'}</td>
       <td class="n ${N(x.adj_total) < 0 ? 'neg' : ''}">${N(x.adj_total) ? (N(x.adj_total) > 0 ? '+' : '−') + gr(Math.abs(N(x.adj_total))) + ' ₴' : '—'}</td><td class="n"><b>${gr(N(x.total))} ₴</b></td>
       <td class="n"><button class="icon-btn" data-pcopy="${x.id}" title="Текст ще раз">${icon('doc')}</button><button class="icon-btn" data-pdel="${x.id}" title="Видалити">${icon('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Виплат ще немає. Збережіть першу — і наступна почнеться з правильних дат.</div>'}</div></section>`;
   const rerender = () => payoutsPage(renderSeq);
   $$('[data-pm]').forEach((b) => b.addEventListener('click', () => { S.payMgr = N(b.dataset.pm); S.pay = null; rerender(); }));
-  $$('[data-p]').forEach((inp) => inp.addEventListener('change', () => { const k = inp.dataset.p; if (!inp.value) return; P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
+  $('#shareIn')?.addEventListener('change', (e) => { const v = parseFloat(e.target.value.replace(/\s/g, '').replace(',', '.')); P.share = Number.isFinite(v) ? v : null; rerender(); });
+  $('#shareAuto')?.addEventListener('click', () => { P.share = null; rerender(); });
+  $$('[data-p]').forEach((inp) => inp.addEventListener('change', () => { const k = inp.dataset.p; if (!inp.value) return;
+    if (k === 'month') { P.month = inp.value; P.oFrom = inp.value + '-01'; P.oTo = monthEnd(inp.value); P.share = null; P.autoU = true; rerender(); return; }
+    P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
   $$('[data-uto]').forEach((b) => b.addEventListener('click', () => { P.uTo = b.dataset.uto; P.autoU = false; rerender(); }));
   $$('[data-addadj]').forEach((b) => b.addEventListener('click', () => { P.adj.push({ label: '', amount: b.dataset.addadj === '-1' ? -100 : '' }); rerender(); }));
   $$('[data-ad]').forEach((b) => b.addEventListener('click', () => { P.adj.splice(N(b.dataset.ad), 1); rerender(); }));
@@ -2230,7 +2261,8 @@ async function payoutsPage(seq) {
       const adj = P.adj.filter((a) => N(a.amount)).map((a) => ({ label: (a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim(), amount: N(a.amount) }));
       const row = await api.insert('mgr_payouts', { manager_id: m.id, paid_at: P.paidAt, orders_from: P.oFrom, orders_to: P.oTo, orders_cnt: cnt, rate, orders_pay: oPay,
         upsell_from: ups ? P.uFrom : null, upsell_to: P.uTo >= P.uFrom ? P.uTo : (last?.upsell_to || null), upsell_sum: ups, upsell_pct: upct, upsell_pay: uPay,
-        adjustments: adj, adj_total: adjT, total, comment: text, created_by: S.user?.email || null });
+        adjustments: adj, adj_total: adjT, total, comment: text, created_by: S.user?.email || null,
+        period_kind: monthly ? 'month' : 'half', share_amount: share, share_net: monthly ? shareNet : null, share_pct: monthly ? N(shareP.value) : null, share_store: monthly && shareP.store_id != null ? N(shareP.store_id) : null });
       if (adjT) {
         const ex = await api.insert('expenses', { date: P.paidAt, category: PAY_CAT, amount: adjT, currency: 'UAH', rate: 1, store_id: null,
           comment: `${m.name}: ${adj.map((a) => `${a.label} ${a.amount > 0 ? '+' : ''}${gr(a.amount)}`).join(', ')}` });
@@ -2665,7 +2697,7 @@ PAGES.vault = async (seq) => {
   const [from, to] = monthRange(m);
   const hFrom = (() => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6, 1); return ymd(d); })();
   const stores = activeStores();
-  const shares = (S.people || []).filter((p) => p.role === 'share' && p.active !== false && p.pay_kind === 'percent_profit');
+  const shares = []; // частки (Вікторія) тут не віднімаються — показуємо чистий прибуток магазинів
   const [all, entriesAll, ...st] = await Promise.all([fetchDays(hFrom, to, null), api.rows('owner_entries').catch(() => []), ...stores.map((x) => fetchDays(hFrom, to, x.id))]);
   if (seq !== renderSeq) return;
   const usd = usdRate();
