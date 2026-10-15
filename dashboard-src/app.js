@@ -665,6 +665,7 @@ PAGES.overview = async (seq) => {
     ${kpi('ROAS', T.roas == null ? '—' : T.roas.toFixed(2).replace('.', ',') + 'x', `${targetFlag(T.roas, tg.roas, 'higher', (v) => v + 'x') || 'виручка / реклама'} · ROMI ${pct(T.romi, 0)}`, delta(T.roas, PT.roas))}
     ${kpi('Ціна ліда', usdf(T.cplUsd), `${targetFlag(T.cplUsd, tg.cpl_usd, 'lower', usdf) || 'реклама / заявки'} · CPO ${usdf(T.cpoFactUsd)}`, delta(T.cplUsd, PT.cplUsd, { invert: true }))}
     ${kpi('Оплати на рахунок', uah(T.card), 'повна оплата на рахунок ФОП', delta(T.card, PT.card))}
+    ${kpi('Викуп', pct(T.convClosed), `забрано ${int(T.success)} з ${int(T.closed)} опрацьованих`, delta(T.convClosed, PT.convClosed, { points: true }))}
     ${kpi('Відмови й повернення', int(T.fail + T.returns), `${pct(T.refuseRate)} закритих · повернень ${int(T.returns)}`, delta(T.fail + T.returns, PT.fail + PT.returns, { invert: true }))}
   </div>
   <div class="grid">
@@ -737,6 +738,7 @@ PAGES.stores = async (seq) => {
         <div class="stat-row"><span>Валовий прибуток</span><b>${uah(T.gross)} <span class="muted small">${pct(T.grossMargin, 0)}</span></b></div>
         <div class="stat-row"><span>ROMI</span><b>${T.romi == null ? '—' : `<span class="flag ${T.romi >= (tg.romi ?? 1) ? 'good' : T.romi >= 0 ? 'warn' : 'bad'}">${pct(T.romi, 0)}</span>`}</b></div>
         <div class="stat-row"><span>Ціна продажу</span><b>${uah(T.cpo)}</b></div>
+        <div class="stat-row"><span>Викуп <span class="muted small">забрано з опрацьованих</span></span><b>${pct(T.convClosed, 1)} <span class="muted small">${int(T.success)} з ${int(T.closed)}</span></b></div>
         <div class="stat-row"><span>Відмови й повернення</span><b>${int(T.fail + T.returns)} <span class="muted small">${pct(T.refuseRate, 0)}</span></b></div>
       </div>
       <div class="exp-h"><span>Витрати магазину</span><b>${uah(T.cogs + T.order_costs + T.return_costs + T.ads + T.other)}</b></div>
@@ -1448,6 +1450,7 @@ PAGES.managers = async (seq) => {
         <div class="stat-row"><span>${nf2.format(N(x.p.value))}% від прибутку</span><b class="pos" style="color:var(--pos, #16a34a)">${uah(x.amount)}</b></div>`).join('')}
         <div class="stat-row" style="border-top:1px solid var(--line)"><span>Заявки</span><b>${int(N(r.leads))}</b></div>
         <div class="stat-row"><span>Підтверджено</span><b>${int(N(r.confirmed))} <span class="muted small">${pct(div(N(r.confirmed), N(r.leads)), 0)}</span></b></div>
+        <div class="stat-row"><span>Викуп</span><b>${pct(div(N(r.success), N(r.success) + N(r.fail) + N(r.returns)), 1)} <span class="muted small">${int(N(r.success))} з ${int(N(r.success) + N(r.fail) + N(r.returns))}</span></b></div>
         <div class="stat-row"><span>Відмови й повернення</span><b class="${r.refuse > 0.3 ? 'neg' : ''}">${pct(r.refuse, 0)}</b></div>
         <div class="stat-row"><span>Виручка з продажів</span><b>${uah(N(r.revenue))}</b></div>
       </div>
