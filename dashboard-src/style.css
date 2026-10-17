@@ -546,34 +546,3 @@ input[type="date"], input[type="month"], input[type="datetime-local"] { min-widt
 .rate-hist { margin-top: 10px; font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
 .rate-hist .rh { white-space: nowrap; }
 .rate-hist .icon-btn { width: 22px; height: 22px; vertical-align: middle; }
-
-/* ---------- Допродаж: розбір по замовленнях ---------- */
-.ups-card { --u-pay: #5c9a2a; --u-next: #378add; --u-wait: #e39a25; --u-fail: #d9534f; }
-.ups-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
-.ups-t { text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 10px 12px; cursor: pointer; font: inherit; display: flex; flex-direction: column; gap: 2px; }
-.ups-t span { font-size: 12px; } .ups-t b { font-family: var(--display); font-size: 20px; } .ups-t small { font-size: 11.5px; opacity: .85; }
-.ups-t.pay { background: color-mix(in srgb, var(--u-pay) 14%, var(--surface)); color: color-mix(in srgb, var(--u-pay) 70%, var(--ink)); }
-.ups-t.next { background: color-mix(in srgb, var(--u-next) 14%, var(--surface)); color: color-mix(in srgb, var(--u-next) 70%, var(--ink)); }
-.ups-t.wait { background: color-mix(in srgb, var(--u-wait) 16%, var(--surface)); color: color-mix(in srgb, var(--u-wait) 60%, var(--ink)); }
-.ups-t.fail { background: color-mix(in srgb, var(--u-fail) 13%, var(--surface)); color: color-mix(in srgb, var(--u-fail) 70%, var(--ink)); }
-.ups-t.on { border-color: currentColor; }
-.ub-wrap { position: relative; padding-top: 18px; }
-.ub { display: flex; align-items: flex-end; gap: 3px; height: 128px; }
-.ub-c { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column-reverse; gap: 2px; border: 0; background: none; padding: 0; cursor: pointer; }
-.ub-c i { display: block; width: 100%; border-radius: 3px; }
-.ub-c i.pay { background: var(--u-pay); } .ub-c i.next { background: var(--u-next); } .ub-c i.wait { background: var(--u-wait); } .ub-c i.fail { background: var(--u-fail); } .ub-c i.none { height: 2px; background: var(--line); }
-.ub-c.dim { opacity: .3; } .ub-c:hover i { filter: brightness(1.08); }
-.ub-cut { position: absolute; top: 0; bottom: 0; border-left: 2px dashed var(--ink-3); pointer-events: none; }
-.ub-cut span { position: absolute; top: -2px; left: 5px; font-size: 11px; color: var(--ink-2); white-space: nowrap; background: var(--surface); padding: 0 3px; }
-.ub-l { display: flex; gap: 3px; margin-top: 4px; } .ub-l span { flex: 1; text-align: center; font-size: 10.5px; color: var(--ink-3); }
-.ups-f { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 8px; }
-.chip-b { font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; }
-.chip-b.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
-.ups-pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-.ups-pill.pay { background: color-mix(in srgb, var(--u-pay) 18%, var(--surface)); color: color-mix(in srgb, var(--u-pay) 75%, var(--ink)); }
-.ups-pill.next { background: color-mix(in srgb, var(--u-next) 18%, var(--surface)); color: color-mix(in srgb, var(--u-next) 75%, var(--ink)); }
-.ups-pill.wait { background: color-mix(in srgb, var(--u-wait) 20%, var(--surface)); color: color-mix(in srgb, var(--u-wait) 65%, var(--ink)); }
-.ups-pill.fail { background: color-mix(in srgb, var(--u-fail) 16%, var(--surface)); color: color-mix(in srgb, var(--u-fail) 75%, var(--ink)); }
-tr.uk-fail td b { text-decoration: line-through; color: var(--ink-3); }
-@media (max-width: 700px) { .ups-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ub { height: 96px; gap: 2px; } .ub-cut span { font-size: 10px; } }
-.ub-cut.r span { left: auto; right: 5px; }
