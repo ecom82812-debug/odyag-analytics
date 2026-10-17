@@ -1317,11 +1317,24 @@ async function payoutsPage(seq) {
     ups ? (uParts.length > 1 ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн. (${uExpr}) = ${gr(uPay)} грн.` : `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${uExpr} = ${gr(uPay)} грн.`) : null,
     ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
     '', `Разом до виплати: ${gr(total, monthly)} грн.`].filter((x) => x !== null).join('\n');
-  // Смужка днів допродажу
-  const days = []; for (let d = P.uFrom; d <= P.oTo && days.length < 62; d = addDays(d, 1)) days.push(d);
-  const bar = days.map((d) => { const a = dayAgg[d] || { ups: 0, pot: 0 }; const pend = pending(d); const inU = d <= P.uTo;
-    const cls = pend > 0.5 ? 'pend' : a.pot > 0 ? 'done' : 'none';
-    return `<button class="pb-d ${cls} ${inU ? 'in' : ''}" data-uto="${d}" title="${fdate(d)}: продано ${uah(a.ups)}${pend > 0.5 ? `, ще в дорозі ${uah(pend)}` : ''}"><span>${+d.slice(8)}</span></button>`; }).join('');
+  // Квадратики днів допродажу: колір — статус допродажу дня; натиск — замовлення дня
+  const uo = await api.rpc('mgr_upsell_orders', { p_mgr: m.id, p_from: P.uFrom, p_to: [P.oTo, today].sort()[1] }).catch(() => []);
+  if (seq !== renderSeq) return;
+  const ucat = (r) => (r.category === 'success' ? 's' : r.category === 'fail' || r.category === 'return' ? 'f' : 't');
+  const byD = {}; for (const r of uo) (byD[String(r.day).slice(0, 10)] = byD[String(r.day).slice(0, 10)] || []).push(r);
+  const dayCls = (rs) => (!rs || !rs.length ? 'none' : rs.some((r) => ucat(r) === 't') ? 'wait' : rs.every((r) => ucat(r) === 'f') ? 'fail' : 'ok');
+  const days = []; for (let d = P.uFrom; d <= [P.oTo, today].sort()[1] && days.length < 62; d = addDays(d, 1)) days.push(d);
+  const bar = days.map((d) => { const rs = byD[d] || []; const c = dayCls(rs); const dot = c !== 'fail' && rs.some((r) => ucat(r) === 'f');
+    const sm = (k) => rs.filter((r) => ucat(r) === k).reduce((a, r) => a + N(r.upsell), 0);
+    const tip = rs.length ? [sm('s') ? `викуплено ${uah(sm('s'))}` : '', sm('t') ? `в дорозі ${uah(sm('t'))}` : '', sm('f') ? `відмова ${uah(sm('f'))}` : ''].filter(Boolean).join(', ') : 'допродажу немає';
+    return `<button class="pb-d ${c} ${d > P.uTo ? 'out' : ''} ${P.uday === d ? 'sel' : ''}" data-uday="${d}" title="${fdate(d)}: ${tip}"><span>${+d.slice(8)}</span>${dot ? '<i class="dot"></i>' : ''}</button>`; }).join('');
+  const ud = P.uday && days.includes(P.uday) ? P.uday : null;
+  const udRows = ud ? (byD[ud] || []) : [];
+  const usm = (k) => udRows.filter((r) => ucat(r) === k).reduce((a, r) => a + N(r.upsell), 0);
+  const UPILL = { s: 'Продаж', f: 'Відмова · 0 ₴' };
+  const dayBox = ud ? `<div class="pay-day"><div class="pay-day-h"><b>${fdate(ud)}</b><span class="muted small">${udRows.length ? [usm('s') ? `викуплено ${gr(usm('s'))} ₴` : '', usm('t') ? `в дорозі ${gr(usm('t'))} ₴` : '', usm('f') ? `відмова ${gr(usm('f'))} ₴` : ''].filter(Boolean).join(' · ') : 'допродажу цього дня немає'}</span>
+      ${ud <= P.uTo ? '<span class="pay-day-in">у цій виплаті</span>' : ''}${ud !== P.uTo ? `<button class="btn sm" data-uto="${ud}">Рахувати допродаж по ${dm(ud)}</button>` : ''}</div>
+      ${udRows.map((r) => { const k = ucat(r); return `<div class="pay-day-r"><span class="nm">${esc(r.client_name || '—')} <span class="muted small">#${r.id}</span></span><span class="muted small it">${esc(String(r.items || '').replace(/Подарункове пакування/i, 'Пакування'))}</span><span class="sm ${k === 'f' ? 'x' : ''}">${gr(N(r.upsell))} ₴</span><span class="pd-pill ${k}">${k === 't' ? esc(r.status_name || 'в роботі') : UPILL[k]}</span></div>`; }).join('')}</div>` : '';
   const hist = payouts.slice().sort((a, b) => String(b.paid_at).localeCompare(String(a.paid_at)) || N(b.id) - N(a.id));
   $('#page').innerHTML = `
   <div class="seg pay-mgrs" style="margin-bottom:14px">${mgrs.map((x) => { const l = mine(x.id)[0]; return `<button data-pm="${x.id}" class="${x.id === m.id ? 'on' : ''}"><i class="sdot" style="background:${mgrColor(x.id)}"></i>${esc(x.name || '#' + x.id)}${l ? ` <span class="muted small">до ${dm(String(l.orders_to).slice(0, 10))}</span>` : ''}</button>`; }).join('')}</div>
@@ -1340,7 +1353,7 @@ async function payoutsPage(seq) {
         <div class="muted small">${shiftEnd(m.id, P.oFrom) ? `Кінець останньої зміни — ${fdate(shiftEnd(m.id, P.oFrom))} (з графіка змін)` : 'Зміну в графіку не знайдено — вкажіть дату вручну'}</div></div>
       <div class="pay-sec"><div class="pay-l">Допродаж · ${gr(upct * 100)}% від викупленого (статус «Продаж»)</div>
         <div class="pay-dates"><input type="date" data-p="uFrom" value="${P.uFrom}"><span>—</span><input type="date" data-p="uTo" value="${P.uTo}"></div>
-        ${days.length ? `<div class="pay-bar">${bar}</div><div class="pay-lg"><span><i class="done"></i>усе викуплено</span><span><i class="pend"></i>ще в дорозі</span><span><i class="none"></i>без допродажу</span><span class="muted">натисніть на день, щоб рахувати допродаж по нього</span></div>` : ''}</div>
+        ${days.length ? `<div class="pay-bar">${bar}</div><div class="pay-lg"><span><i class="ok"></i>усе викуплено</span><span><i class="wait"></i>є в дорозі</span><span><i class="fail"></i>лише відмови</span><span><i class="none"></i>без допродажу</span><span><i class="dotl"></i>була відмова</span><span class="muted">бліді — після межі · натисніть на день, щоб побачити замовлення</span></div>${dayBox}` : ''}</div>
       <div class="pay-sec"><div class="pay-l">Бонуси, доплати, штрафи</div>
         <div id="adjRows">${P.adj.map((a, i) => `<div class="adj-row"><input type="text" placeholder="${N(a.amount) < 0 ? 'Штраф' : 'Бонус на день народження'}" value="${esc(a.label || '')}" data-al="${i}"><input type="text" inputmode="decimal" placeholder="0" value="${a.amount ?? ''}" data-aa="${i}" class="${N(a.amount) < 0 ? 'neg' : ''}"><button class="icon-btn" data-ad="${i}" title="Прибрати">${icon('trash')}</button></div>`).join('')}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" data-addadj="1">${icon('plus')}Бонус / доплата</button><button class="btn sm" data-addadj="-1">${icon('plus')}Штраф</button></div>
@@ -1375,6 +1388,7 @@ async function payoutsPage(seq) {
     if (k === 'month') { P.month = inp.value; P.oFrom = inp.value + '-01'; P.oTo = monthEnd(inp.value); P.share = null; P.autoU = true; rerender(); return; }
     P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
   $$('[data-uto]').forEach((b) => b.addEventListener('click', () => { P.uTo = b.dataset.uto; P.autoU = false; rerender(); }));
+  $$('[data-uday]').forEach((b) => b.addEventListener('click', () => { P.uday = P.uday === b.dataset.uday ? null : b.dataset.uday; rerender(); }));
   $$('[data-addadj]').forEach((b) => b.addEventListener('click', () => { P.adj.push({ label: '', amount: b.dataset.addadj === '-1' ? -100 : '' }); rerender(); }));
   $$('[data-ad]').forEach((b) => b.addEventListener('click', () => { P.adj.splice(N(b.dataset.ad), 1); rerender(); }));
   $$('[data-al]').forEach((inp) => inp.addEventListener('change', () => { P.adj[N(inp.dataset.al)].label = inp.value; rerender(); }));
