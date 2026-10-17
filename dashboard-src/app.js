@@ -1317,11 +1317,34 @@ async function payoutsPage(seq) {
     ups ? (uParts.length > 1 ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн. (${uExpr}) = ${gr(uPay)} грн.` : `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${uExpr} = ${gr(uPay)} грн.`) : null,
     ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
     '', `Разом до виплати: ${gr(total, monthly)} грн.`].filter((x) => x !== null).join('\n');
-  // Смужка днів допродажу
-  const days = []; for (let d = P.uFrom; d <= P.oTo && days.length < 62; d = addDays(d, 1)) days.push(d);
-  const bar = days.map((d) => { const a = dayAgg[d] || { ups: 0, pot: 0 }; const pend = pending(d); const inU = d <= P.uTo;
-    const cls = pend > 0.5 ? 'pend' : a.pot > 0 ? 'done' : 'none';
-    return `<button class="pb-d ${cls} ${inU ? 'in' : ''}" data-uto="${d}" title="${fdate(d)}: продано ${uah(a.ups)}${pend > 0.5 ? `, ще в дорозі ${uah(pend)}` : ''}"><span>${+d.slice(8)}</span></button>`; }).join('');
+  // Допродаж по замовленнях: у виплаті / викуплено після межі / в дорозі / відмова
+  const uo = await api.rpc('mgr_upsell_orders', { p_mgr: m.id, p_from: P.uFrom, p_to: today }).catch(() => []);
+  if (seq !== renderSeq) return;
+  const ukind = (r) => { const c = r.category; if (c === 'success') return String(r.day).slice(0, 10) <= P.uTo ? 'pay' : 'next'; if (c === 'fail' || c === 'return') return 'fail'; return 'wait'; };
+  const UK = { pay: ['У виплаті', 'викуплено по ' + dm(P.uTo)], next: ['Викуплено після межі', 'у наступну виплату'], wait: ['Ще в дорозі', 'чекаємо викупу'], fail: ['Відмова', 'не оплачується'] };
+  const agg = { pay: [0, 0], next: [0, 0], wait: [0, 0], fail: [0, 0] };
+  for (const r of uo) { const k = ukind(r); agg[k][0] += N(r.upsell); agg[k][1]++; }
+  const udays = []; for (let d = P.uFrom; d <= today && udays.length < 62; d = addDays(d, 1)) udays.push(d);
+  const dayK = (d) => { const o = { pay: 0, next: 0, wait: 0, fail: 0 }; for (const r of uo) if (String(r.day).slice(0, 10) === d) o[ukind(r)] += N(r.upsell); return o; };
+  const umax = Math.max(1, ...udays.map((d) => Object.values(dayK(d)).reduce((a, v) => a + v, 0)));
+  const cutIdx = udays.indexOf(P.uTo);
+  const uf = P.uf || 'all', uday = P.uday || null;
+  const uRows = uo.filter((r) => (uf === 'all' || ukind(r) === uf) && (!uday || String(r.day).slice(0, 10) === uday));
+  const ubar = udays.map((d, i) => { const o = dayK(d); const tot = Object.values(o).reduce((a, v) => a + v, 0);
+    return `<button class="ub-c ${uday && uday !== d ? 'dim' : ''}" data-uday="${d}" title="${fdate(d)}${tot ? ': ' + ['pay', 'next', 'wait', 'fail'].filter((k) => o[k]).map((k) => `${UK[k][0].toLowerCase()} ${uah(o[k])}`).join(', ') : ' — допродажу немає'}">${['pay', 'next', 'wait', 'fail'].map((k) => (o[k] ? `<i class="${k}" style="height:${Math.max(3, Math.round(o[k] / umax * 110))}px"></i>` : '')).join('') || '<i class="none"></i>'}</button>`; }).join('');
+  const ulbl = udays.map((d, i) => `<span>${udays.length > 16 && i % 2 ? '' : +d.slice(8)}</span>`).join('');
+  const shortItem = (t) => String(t || '').replace(/Подарункове пакування/i, 'Пакування').slice(0, 60);
+  const upsellCard = `<section class="card ups-card" style="margin-top:14px">
+    <div class="card-h"><div><h2 class="card-t">Допродаж ${esc(m.name)} з ${dm(P.uFrom)}: розбір по замовленнях</h2><div class="card-s">Зелене йде у виплату, синє — вже викуплене, але після межі, жовте — ще в дорозі, червоне — відмова (не оплачується)</div></div></div>
+    <div class="ups-tiles">${['pay', 'next', 'wait', 'fail'].map((k) => `<button class="ups-t ${k} ${uf === k ? 'on' : ''}" data-uf="${k}"><span>${UK[k][0]}</span><b>${gr(agg[k][0])} ₴</b><small>${agg[k][1]} шт · ${UK[k][1]}</small></button>`).join('')}</div>
+    <div class="ub-wrap"><div class="ub">${ubar}</div>${cutIdx >= 0 ? `<div class="ub-cut ${(cutIdx + 1) / udays.length > 0.65 ? 'r' : ''}" style="left:calc(${(cutIdx + 1) / udays.length * 100}% - 1px)"><span>межа виплати ${dm(P.uTo)}</span></div>` : ''}</div>
+    <div class="ub-l">${ulbl}</div>
+    <div class="ups-f">${[['all', `Усі ${uo.length}`], ['pay', `У виплаті ${agg.pay[1]}`], ['next', `Наступна ${agg.next[1]}`], ['wait', `В дорозі ${agg.wait[1]}`], ['fail', `Відмова ${agg.fail[1]}`]].map(([k, t]) => `<button class="chip-b ${uf === k ? 'on' : ''}" data-uf="${k}">${t}</button>`).join('')}
+      ${uday ? `<button class="chip-b on" data-uday="${uday}">${fdate(uday)} ✕</button>${uday !== P.uTo ? `<button class="btn sm" data-uto="${uday}">Рахувати допродаж по ${dm(uday)}</button>` : ''}` : ''}</div>
+    <div class="tw"><table class="t ups-t-list"><thead><tr><th>Дата</th><th>Замовлення</th><th>Клієнт</th><th>Допродаж</th><th class="n">Сума</th><th>Статус</th></tr></thead><tbody>${uRows.map((r) => { const k = ukind(r); return `<tr class="uk-${k}">
+      <td>${fdate(String(r.day).slice(0, 10))}</td><td class="muted">#${r.id}</td><td>${esc(r.client_name || '—')}</td><td class="muted small">${esc(shortItem(r.items))}</td>
+      <td class="n"><b>${gr(N(r.upsell))} ₴</b></td><td><span class="ups-pill ${k}">${k === 'wait' ? esc(r.status_name || 'в роботі') : UK[k][0]}</span>${k !== 'pay' && k !== 'wait' ? '' : ''}${k === 'wait' || k === 'fail' ? '' : ` <span class="muted small">${esc(r.status_name || '')}</span>`}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Немає замовлень</td></tr>'}</tbody></table></div>
+  </section>`;
   const hist = payouts.slice().sort((a, b) => String(b.paid_at).localeCompare(String(a.paid_at)) || N(b.id) - N(a.id));
   $('#page').innerHTML = `
   <div class="seg pay-mgrs" style="margin-bottom:14px">${mgrs.map((x) => { const l = mine(x.id)[0]; return `<button data-pm="${x.id}" class="${x.id === m.id ? 'on' : ''}"><i class="sdot" style="background:${mgrColor(x.id)}"></i>${esc(x.name || '#' + x.id)}${l ? ` <span class="muted small">до ${dm(String(l.orders_to).slice(0, 10))}</span>` : ''}</button>`; }).join('')}</div>
@@ -1340,7 +1363,7 @@ async function payoutsPage(seq) {
         <div class="muted small">${shiftEnd(m.id, P.oFrom) ? `Кінець останньої зміни — ${fdate(shiftEnd(m.id, P.oFrom))} (з графіка змін)` : 'Зміну в графіку не знайдено — вкажіть дату вручну'}</div></div>
       <div class="pay-sec"><div class="pay-l">Допродаж · ${gr(upct * 100)}% від викупленого (статус «Продаж»)</div>
         <div class="pay-dates"><input type="date" data-p="uFrom" value="${P.uFrom}"><span>—</span><input type="date" data-p="uTo" value="${P.uTo}"></div>
-        ${days.length ? `<div class="pay-bar">${bar}</div><div class="pay-lg"><span><i class="done"></i>усе викуплено</span><span><i class="pend"></i>ще в дорозі</span><span><i class="none"></i>без допродажу</span><span class="muted">натисніть на день, щоб рахувати допродаж по нього</span></div>` : ''}</div>
+        <div class="muted small">У виплату: <b style="color:var(--good)">${gr(agg.pay[0])} ₴ (${agg.pay[1]} шт)</b>${agg.wait[1] ? ` · в дорозі ${gr(agg.wait[0])} ₴` : ''}${agg.fail[1] ? ` · відмов ${agg.fail[1]} на ${gr(agg.fail[0])} ₴` : ''}. Розбір по замовленнях — нижче.</div></div>
       <div class="pay-sec"><div class="pay-l">Бонуси, доплати, штрафи</div>
         <div id="adjRows">${P.adj.map((a, i) => `<div class="adj-row"><input type="text" placeholder="${N(a.amount) < 0 ? 'Штраф' : 'Бонус на день народження'}" value="${esc(a.label || '')}" data-al="${i}"><input type="text" inputmode="decimal" placeholder="0" value="${a.amount ?? ''}" data-aa="${i}" class="${N(a.amount) < 0 ? 'neg' : ''}"><button class="icon-btn" data-ad="${i}" title="Прибрати">${icon('trash')}</button></div>`).join('')}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" data-addadj="1">${icon('plus')}Бонус / доплата</button><button class="btn sm" data-addadj="-1">${icon('plus')}Штраф</button></div>
@@ -1360,6 +1383,7 @@ async function payoutsPage(seq) {
       <div class="pay-btns"><button class="btn" id="payCopy">${icon('doc')}Скопіювати текст</button><button class="btn primary" id="paySave">${icon('check')}Зберегти виплату</button></div>
     </section>
   </div>
+  ${upsellCard}
   <section class="card" style="margin-top:14px"><div class="card-h"><div><h2 class="card-t">Історія виплат</h2><div class="card-s">Наступна виплата кожної менеджерки продовжує з дня після останньої</div></div></div>
     <div class="tw">${hist.length ? `<table class="t"><thead><tr><th>Менеджер</th><th>Дата виплати</th><th>Замовлення</th><th class="n">Шт</th><th>Допродаж</th><th class="n">% від прибутку</th><th class="n">Бонуси / штрафи</th><th class="n">Разом</th><th></th></tr></thead><tbody>${hist.map((x) => `<tr>
       <td><b>${esc(mgrName(x.manager_id))}</b></td><td>${fdate(String(x.paid_at).slice(0, 10))}</td><td>${dm(String(x.orders_from).slice(0, 10))}–${dm(String(x.orders_to).slice(0, 10))}</td><td class="n">${int(N(x.orders_cnt))}</td>
@@ -1375,6 +1399,8 @@ async function payoutsPage(seq) {
     if (k === 'month') { P.month = inp.value; P.oFrom = inp.value + '-01'; P.oTo = monthEnd(inp.value); P.share = null; P.autoU = true; rerender(); return; }
     P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
   $$('[data-uto]').forEach((b) => b.addEventListener('click', () => { P.uTo = b.dataset.uto; P.autoU = false; rerender(); }));
+  $$('[data-uday]').forEach((b) => b.addEventListener('click', () => { P.uday = P.uday === b.dataset.uday ? null : b.dataset.uday; rerender(); }));
+  $$('[data-uf]').forEach((b) => b.addEventListener('click', () => { P.uf = (P.uf || 'all') === b.dataset.uf && b.dataset.uf !== 'all' ? 'all' : b.dataset.uf; rerender(); }));
   $$('[data-addadj]').forEach((b) => b.addEventListener('click', () => { P.adj.push({ label: '', amount: b.dataset.addadj === '-1' ? -100 : '' }); rerender(); }));
   $$('[data-ad]').forEach((b) => b.addEventListener('click', () => { P.adj.splice(N(b.dataset.ad), 1); rerender(); }));
   $$('[data-al]').forEach((inp) => inp.addEventListener('change', () => { P.adj[N(inp.dataset.al)].label = inp.value; rerender(); }));
