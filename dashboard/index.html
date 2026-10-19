@@ -576,6 +576,8 @@ input[type="date"], input[type="month"], input[type="datetime-local"] { min-widt
 .rate-hist .rh { white-space: nowrap; }
 .rate-hist .icon-btn { width: 22px; height: 22px; vertical-align: middle; }
 
+.btn:disabled { opacity: .5; cursor: default; }
+
 </style>
 </head>
 <body>
@@ -970,6 +972,7 @@ const I = {
   up: '<path d="m6 15 6-6 6 6"/>',
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  tg: '<path d="M21 4 3 11l6.5 2.5L12 20l3.5-4.5L20 19z"/><path d="m9.5 13.5 7-6"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="9" fill="#e9b8c9"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linejoin="round"/></svg>`;
@@ -1274,7 +1277,7 @@ function shell() {
   const nav = [
     ['Аналітика', [['overview', 'Огляд', 'home'], ['stores', 'Магазини', 'shop'], ['days', 'По днях', 'days'], ['months', 'По місяцях', 'months'], ['products', 'Товари', 'box'], ['ads', 'Реклама', 'ads'], ['managers', 'Менеджери', 'users']]],
     ['Облік', [['payments', 'Оплати на рахунок', 'check'],['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
-    ['Система', [['settings', 'Налаштування', 'gear']]],
+    ['Система', [['settings', 'Налаштування', 'gear'], ...(S.isOwner ? [['bot', 'Bot Telegram', 'tg']] : [])]],
   ];
   $('#app').innerHTML = `
   <div class="app">
@@ -1369,6 +1372,7 @@ const TITLES = {
   payments: ['Оплати на рахунок', 'Повні оплати й передоплати з CRM — для звірки з банком'],
   fop: ['ФОП і податки', 'Податки кожного ФОПа й контроль річного ліміту'],
   settings: ['Налаштування', 'Синхронізація, статуси, курси валют'],
+  bot: ['Bot Telegram', 'Накладні постачальнику й ТТН у Telegram: режим, розклад, стан'],
 };
 function go(p) {
   S.page = p; if (p !== 'vault') store.set('page', p);
@@ -1383,10 +1387,10 @@ async function render() {
   const seq = ++renderSeq;
   if (S.page !== 'days') document.querySelector('.cols-pop')?.remove();
   const [t, s] = TITLES[S.page]; $('#pageT').textContent = t;
-  const usesStore = !['settings', 'stores', 'salary', 'fop', 'vault'].includes(S.page) && activeStores().length > 1;
+  const usesStore = !['settings', 'stores', 'salary', 'fop', 'vault', 'bot'].includes(S.page) && activeStores().length > 1;
   $('#pageS').innerHTML = S.page === 'managers' && S.mgrView ? (S.mgrView === 'pay' ? 'Виплати менеджерам · ставка, допродаж, бонуси і штрафи' : 'Графік змін · хто працював і хто працюватиме') : esc(s) + (usesStore ? ' · ' + (S.store == null ? 'усі магазини' : storeTag(S.store)) : '');
   document.documentElement.style.setProperty('--store-accent', usesStore && S.store != null ? `var(${storeColor(S.store)})` : 'transparent');
-  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault'].includes(S.page) && !(S.page === 'managers' && S.mgrView);
+  const usesPeriod = !['settings', 'months', 'salary', 'fop', 'vault', 'bot'].includes(S.page) && !(S.page === 'managers' && S.mgrView);
   $('#tools').innerHTML = (usesStore ? storeTool() : '') + (usesPeriod ? periodTool() : '');
   $('#storeSeg')?.addEventListener('click', (e) => { { const mv = e.target.closest('[data-mview]'); if (mv) { S.mgrView = mv.dataset.mview; render(); return; } } const b = e.target.closest('[data-store]'); if (!b) return; S.mgrView = null; S.store = b.dataset.store === '' ? null : N(b.dataset.store); store.set('store', S.store); S.data = null; render(); });
   $('#periodBtn')?.addEventListener('click', openPeriod);
@@ -3222,6 +3226,106 @@ PAGES.settings = async (seq) => {
       for (const mg of S.managers) { const q = rateOn(mg.id, ymd(new Date())); await api.update('managers', mg.id, { rate_per_order: q.rate, upsell_pct: q.pct }); }
       S.managers = await api.list('managers'); S.data = null; toast('Зміну скасовано'); render(); } catch (e) { toast(e.message, true); }
   }));
+};
+
+// ---------------------------------------------------------------- Bot Telegram (накладні постачальнику й ТТН)
+// Керує серверною функцією tg-bot у цьому ж проєкті. Доступ — лише власнику (перевіряється на сервері).
+const BOT_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];
+const BOT_ST = { queued: ['У черзі', 'warn'], running: ['Надсилається', 'warn'], stopping: ['Зупиняється', 'warn'], done: ['Готово', 'good'], stopped: ['Зупинено', ''], empty: ['Порожньо', ''], error: ['Помилка', 'bad'] };
+let botTimer = null;
+const botApi = (body) => api.sync(body, 'tg-bot');
+PAGES.bot = async (seq) => {
+  clearTimeout(botTimer);
+  const r = await botApi({ admin: 'get' });
+  if (seq !== renderSeq) return;
+  if (!r || r.ok === false) throw new Error(r?.error || 'Бот не відповідає');
+  S.botSched = (r.schedule || []).map((s) => ({ time: s.time, days: [...(s.days || [])], enabled: s.enabled !== false }));
+  const live = r.mode === 'live';
+  const active = (r.runs || []).find((x) => ['queued', 'running', 'stopping'].includes(x.status));
+  const last = (r.runs || []).find((x) => !['queued', 'running', 'stopping'].includes(x.status));
+  const runLine = (x) => `${fdate(x.day)} ${esc(x.slot)} · №${x.run_no}`;
+  $('#page').innerHTML = `
+  <div class="grid">
+    <section class="card c6"><div class="card-h"><div><h2 class="card-t">Стан</h2><div class="card-s">Оновлюється сам, поки йде відправка</div></div></div>
+      <div class="stat-list">
+        <div class="stat-row"><span>Режим</span><b>${live ? '<span class="flag good">✅ Робочий</span>' : '<span class="flag warn">🧪 Тестовий</span>'}</b></div>
+        <div class="stat-row"><span>Зараз</span><b>${active ? `${runLine(active)} — ${int(N(active.sent))} з ${active.total ? int(N(active.total)) : '…'}` : 'нічого не виконується'}</b></div>
+        <div class="stat-row"><span>Остання відправка</span><b>${last ? `${runLine(last)} — ${BOT_ST[last.status]?.[0] || esc(last.status)}${N(last.total) ? `, ${int(N(last.sent))} з ${int(N(last.total))}` : ''}` : '—'}</b></div>
+        <div class="stat-row"><span>ТТН у черзі</span><b>${int(N(r.pending))}</b></div>
+        <div class="stat-row"><span>Група і гілки</span><b>${r.chat ? 'група ✅' : '<span class="warn-t">група не підключена</span>'} · накладні ${r.topics?.orders ? '✅' : '—'} · ТТН ${r.topics?.ttn ? '✅' : '—'}</b></div>
+      </div></section>
+
+    <section class="card c6"><div class="card-h"><div><h2 class="card-t">Режим</h2><div class="card-s">${live
+      ? 'Робочий: після накладної — статус «На відправку» в CRM, переслані ТТН вносяться в CRM, працює розклад.'
+      : 'Тестовий: у CRM нічого не змінюється, розклад не запускається. Вручну надсилаються лише перші 10 накладних.'}</div></div></div>
+      <div class="seg" id="botMode"><button data-mode="test" class="${live ? '' : 'on'}">🧪 Тестовий</button><button data-mode="live" class="${live ? 'on' : ''}">✅ Робочий</button></div>
+      <div class="hint" style="margin-top:12px">Коли вмикаєте робочий режим, вимкніть автозапуски у Viber-боті на комп’ютері — інакше замовлення підуть двічі.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn primary" id="botSend">▶ Відправити зараз</button>
+        ${live ? '' : '<button class="btn" id="botSendAll" title="У тесті — усі накладні, а не лише перші 10">▶ Усі накладні (тест)</button>'}
+        <button class="btn" id="botStop" ${active ? '' : 'disabled'}>⏹ Зупинити</button>
+      </div>
+      <label style="display:flex;gap:10px;margin:14px 0 0;align-items:center"><input type="checkbox" id="botEmpty" ${r.empty_notice ? 'checked' : ''}><span>Писати «немає замовлень», коли запуск за розкладом порожній</span></label></section>
+
+    <section class="card c12"><div class="card-h"><div><h2 class="card-t">Розклад відправки</h2><div class="card-s">Київський час. Діє лише в робочому режимі. Перехід на зимовий/літній час враховується сам.</div></div>
+      <button class="btn sm" id="botAdd">${icon('plus')}Додати час</button></div>
+      <div id="botSched"></div>
+      <div style="margin-top:12px"><button class="btn primary" id="botSave">Зберегти розклад</button></div></section>
+
+    <section class="card c7"><div class="card-h"><div><h2 class="card-t">Історія запусків</h2><div class="card-s">Останні 25</div></div></div>
+      <div class="tw"><table class="t"><thead><tr><th>Коли</th><th>Як</th><th class="n">Надіслано</th><th>Результат</th></tr></thead><tbody>${(r.runs || []).map((x) => `<tr>
+        <td style="white-space:nowrap">${runLine(x)}</td><td class="small">${x.trigger === 'schedule' ? 'Розклад' : 'Вручну'}${x.mode === 'test' ? ' <span class="muted">· тест</span>' : ''}</td>
+        <td class="n">${N(x.total) ? `${int(N(x.sent))} з ${int(N(x.total))}` : '—'}</td>
+        <td><span class="flag ${BOT_ST[x.status]?.[1] || ''}">${BOT_ST[x.status]?.[0] || esc(x.status)}</span>${x.error ? `<div class="small neg">${esc(x.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Ще не було запусків</td></tr>'}</tbody></table></div></section>
+
+    <section class="card c5"><div class="card-h"><div><h2 class="card-t">ТТН без збігу</h2><div class="card-s">За 7 днів. Внесіть їх у CRM вручну.</div></div></div>
+      <div class="tw"><table class="t"><thead><tr><th>ТТН</th><th>Прізвище</th><th>Кандидати</th></tr></thead><tbody>${(r.unmatched || []).map((u) => `<tr>
+        <td class="small" style="white-space:nowrap">${esc(u.ttn)}<div class="muted">${fdt(u.at)}</div></td><td>${esc(u.surname)}${u.cod != null ? ` <span class="muted small">· ${u.cod === 'FULL' ? 'повна оплата' : 'налож ' + esc(u.cod)}</span>` : ''}</td>
+        <td class="small muted">${(u.top || []).filter((t) => N(t.score) > 0).map((t) => `#${esc(t.order_id)} ${esc(t.surname)}`).join(', ') || '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Усі ТТН зіставлено</td></tr>'}</tbody></table></div></section>
+  </div>`;
+
+  const drawSched = () => {
+    $('#botSched').innerHTML = S.botSched.map((s, i) => `<div class="stat-row" data-i="${i}" style="gap:10px;flex-wrap:wrap;justify-content:flex-start">
+      <input type="time" data-f="time" value="${esc(s.time)}" style="width:110px">
+      <div class="seg">${BOT_DAYS.map((d, k) => `<button data-day="${k}" class="${s.days.includes(k) ? 'on' : ''}">${d}</button>`).join('')}</div>
+      <label style="display:flex;gap:6px;align-items:center" class="small"><input type="checkbox" data-f="enabled" ${s.enabled ? 'checked' : ''}>увімкнено</label>
+      <button class="icon-btn" data-del title="Видалити">${icon('trash')}</button></div>`).join('') || '<div class="empty">Часів немає — натисніть «Додати час»</div>';
+  };
+  drawSched();
+  $('#botSched').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-i]'); if (!row) return; const s = S.botSched[N(row.dataset.i)];
+    const d = e.target.closest('[data-day]'); if (d) { const k = N(d.dataset.day); s.days = s.days.includes(k) ? s.days.filter((x) => x !== k) : [...s.days, k].sort(); d.classList.toggle('on'); }
+    if (e.target.closest('[data-del]')) { S.botSched.splice(N(row.dataset.i), 1); drawSched(); }
+  });
+  $('#botSched').addEventListener('change', (e) => {
+    const row = e.target.closest('[data-i]'); if (!row) return; const s = S.botSched[N(row.dataset.i)];
+    if (e.target.dataset.f === 'time') s.time = e.target.value;
+    if (e.target.dataset.f === 'enabled') s.enabled = e.target.checked;
+  });
+  $('#botAdd').addEventListener('click', () => { S.botSched.push({ time: '10:00', days: [0, 1, 2, 3, 4, 5], enabled: true }); drawSched(); });
+  const act = async (body, ok, btn) => {
+    if (btn) btn.disabled = true;
+    try { const res = await botApi(body); if (res?.ok === false) throw new Error(res.error); toast(ok); render(); }
+    catch (e) { toast(e.message, true); if (btn) btn.disabled = false; }
+  };
+  $('#botSave').addEventListener('click', (e) => {
+    if (S.botSched.some((s) => !s.time)) return toast('Вкажіть час у кожному рядку', true);
+    if (S.botSched.some((s) => s.enabled && !s.days.length)) return toast('Оберіть хоча б один день для кожного увімкненого часу', true);
+    act({ admin: 'set_schedule', schedule: S.botSched }, 'Розклад збережено', e.currentTarget);
+  });
+  $('#botMode').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-mode]'); if (!b || b.classList.contains('on')) return;
+    if (b.dataset.mode === 'live' && !(await confirmBox('Увімкнути робочий режим?', 'Бот почне змінювати статуси й вносити ТТН у CRM, а також відправляти за розкладом. Перед цим вимкніть автозапуски у Viber-боті, інакше замовлення підуть двічі.', 'Увімкнути'))) return;
+    act({ admin: 'set_mode', mode: b.dataset.mode }, b.dataset.mode === 'live' ? 'Робочий режим увімкнено' : 'Тестовий режим увімкнено');
+  });
+  $('#botSend').addEventListener('click', async (e) => {
+    if (live && !(await confirmBox('Відправити зараз?', 'Бот надішле в Telegram усі підтверджені замовлення і змінить їм статус на «На відправку».', 'Відправити'))) return;
+    act({ admin: 'send' }, 'Відправку запущено', e.currentTarget);
+  });
+  $('#botSendAll')?.addEventListener('click', (e) => act({ admin: 'send', all: true }, 'Тестову відправку всіх накладних запущено', e.currentTarget));
+  $('#botStop').addEventListener('click', (e) => act({ admin: 'stop' }, 'Зупиняю відправку', e.currentTarget));
+  $('#botEmpty').addEventListener('change', (e) => act({ admin: 'set_option', key: 'empty_notice', value: e.target.checked }, 'Збережено'));
+  if (active) botTimer = setTimeout(() => { if (S.page === 'bot' && !document.activeElement?.closest?.('#botSched')) render(); }, 8000);
 };
 
 // ---------------------------------------------------------------- синхронізація
