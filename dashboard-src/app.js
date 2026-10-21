@@ -384,7 +384,7 @@ const TABS = ['overview', 'days', 'managers', 'expenses'];
 function shell() {
   const nav = [
     ['Аналітика', [['overview', 'Огляд', 'home'], ['stores', 'Магазини', 'shop'], ['days', 'По днях', 'days'], ['months', 'По місяцях', 'months'], ['products', 'Товари', 'box'], ['ads', 'Реклама', 'ads'], ['managers', 'Менеджери', 'users']]],
-    ['Облік', [['payments', 'Оплати на рахунок', 'check'],['expenses', 'Витрати', 'wallet'], ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
+    ['Облік', [['payments', 'Оплати на рахунок', 'check'],['expenses', 'Витрати', 'wallet'], ...(S.isOwner ? [['obmin', 'Обміни', 'sync']] : []), ['salary', 'Зарплата', 'coin'], ['fop', 'ФОП і податки', 'doc']]],
     ['Система', [['settings', 'Налаштування', 'gear'], ...(S.isOwner ? [['bot', 'Bot Telegram', 'tg']] : [])]],
   ];
   $('#app').innerHTML = `
@@ -476,7 +476,7 @@ const TITLES = {
   expenses: ['Витрати', 'Реклама, податки, SMS та інші витрати'],
   salary: ['Зарплата', 'Виплати власникам і команді'],
   vault: ['Мій дохід', 'Особистий облік: одяг + інші доходи'],
-  obmin: ['Обміни', 'Обміни й повернення від менеджерів'],
+  obmin: ['Обміни', 'Обміни й повернення коштів з бота обмінів: рух, гроші, зарахування постачальника'],
   payments: ['Оплати на рахунок', 'Повні оплати й передоплати з CRM — для звірки з банком'],
   fop: ['ФОП і податки', 'Податки кожного ФОПа й контроль річного ліміту'],
   settings: ['Налаштування', 'Синхронізація, статуси, курси валют'],
@@ -1917,94 +1917,76 @@ PAGES.vault = async (seq) => {
   });
 };
 
-// ================================================================ ОБМІНИ (для власника)
-const EX_ST = { new: ['Нова', 'warn'], sent: ['Надіслано постачальнику', 'work'], accepted: ['Постачальник прийняв', 'work'], shipped: ['Обмін відправлено', 'success'], refunded: ['Кошти повернено', 'success'], closed: ['Закрито', 'success'], cancelled: ['Скасовано', 'fail'] };
-function supplierText(x) {
-  const surname = String(x.client_name || '').split(/\s+/)[0] || '';
-  return [x.kind === 'refund' ? 'ПОВЕРНЕННЯ' : 'ОБМІН', '', 'Замовлення:', `${surname} ${x.order_ttn || ''}`.trim(), `${x.items || ''}${N(x.cost_price) ? ` (${Math.round(N(x.cost_price))})` : ''}`, '',
-    `Легке повернення: ${x.ret_ttn || ''}`, '', x.kind === 'refund' ? 'повернення коштів' : `обмін на ${x.new_item || ''}`, x.reason || '', x.kind === 'refund' ? 'Карта для виплати (в табличку)' : ''].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n').trim();
-}
+// ================================================================ ОБМІНИ (бот обмінів @odyag_obmin_bot; лише для власника)
+// Дані — з таблиці бота exch_cases через exch_list(): відкриті обміни завжди, решта — за датою створення.
+const EX_ST = { new: ['Новий', 'warn'], supplier: ['У постачальника', 'warn'], approved: ['Підтверджено', 'warn'], created: ['Оформлено в CRM', ''],
+  shipped: ['Відправлено', 'good'], paid: ['Кошти виплачено', 'good'], rejected: ['Відхилено', 'bad'], cancelled: ['Скасовано', 'bad'] };
+const EX_OPEN = ['new', 'supplier', 'approved', 'created'];
+// Старі картки (до кількох позицій) мали один товар у new_item
+const exNew = (x) => (Array.isArray(x.new_items) && x.new_items.length ? x.new_items : x.new_item ? [x.new_item] : []);
+const exItems = (list) => (Array.isArray(list) ? list : []).map((it) =>
+  `${esc([it.sku, it.color, it.size].filter(Boolean).join(' ') || '?')}${N(it.qty) > 1 ? ' ×' + N(it.qty) : ''}${N(it.cost) ? ` <span class="muted">(${int(N(it.cost))})</span>` : ''}`).join('<br>') || '—';
+const exCost = (list) => (Array.isArray(list) ? list : []).reduce((a, it) => a + N(it.cost) * (N(it.qty) || 1), 0);
+// Гроші обміну з точки зору магазину: «+» отримали від клієнта, «−» віддали клієнту
+const exMoney = (x) => {
+  if (x.kind === 'refund') return -N(x.refund?.amount);
+  const p = x.pay || {};
+  return ['cod', 'paid'].includes(p.mode) ? N(p.amount) : p.mode === 'back' ? -N(p.amount) : 0;
+};
+const exPayText = (x) => {
+  if (x.kind === 'refund') return `повернути ${uah(N(x.refund?.amount))} на карту${x.refund?.card ? `<br><span class="muted small">${esc(x.refund.card)}</span>` : ''}`;
+  const p = x.pay || {};
+  return p.mode === 'cod' ? `доплата ${uah(N(p.amount))} наложкою` : p.mode === 'paid' ? `доплата ${uah(N(p.amount))} на реквізити`
+    : p.mode === 'back' ? `повернути клієнту ${uah(N(p.amount))}` : 'без доплати';
+};
 PAGES.obmin = async (seq) => {
-  const list = await api.rows('exchanges').catch((e) => { throw new Error('Таблиця обмінів ще не готова: ' + e.message); });
+  const list = await api.rpc('exch_list', { p_from: S.from, p_to: S.to });
   if (seq !== renderSeq) return;
+  const all = (list || []).map((x) => ({ ...x, d: ymd(new Date(x.created_at)) }))
+    .filter((x) => S.store == null || N(x.store_id) === S.store);
+  const inPeriod = all.filter((x) => x.d >= S.from && x.d <= S.to);
+  const live = inPeriod.filter((x) => !['rejected', 'cancelled'].includes(x.status));
+  const exch = live.filter((x) => x.kind !== 'refund'), refunds = live.filter((x) => x.kind === 'refund');
+  const open = all.filter((x) => EX_OPEN.includes(x.status));
+  const cnt = (st) => open.filter((x) => x.status === st).length;
+  const money = exch.reduce((a, x) => a + exMoney(x), 0);
+  const refunded = refunds.filter((x) => x.status === 'paid').reduce((a, x) => a + N(x.refund?.amount), 0);
+  const credit = live.reduce((a, x) => a + exCost(x.returned), 0);
+  const sold = exch.filter((x) => x.crm_category === 'success');
   const f = S.exF || 'open';
-  const rows = (list || []).map((x) => ({ ...x, d: String(x.created_at).slice(0, 10) }))
-    .filter((x) => S.store == null || N(x.store_id) === S.store)
-    .filter((x) => f === 'all' ? (x.d >= S.from && x.d <= S.to) : f === 'open' ? !['closed', 'cancelled', 'refunded', 'shipped'].includes(x.status) : (x.d >= S.from && x.d <= S.to && ['closed', 'refunded', 'shipped'].includes(x.status)))
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const inPeriod = (list || []).filter((x) => { const d = String(x.created_at).slice(0, 10); return d >= S.from && d <= S.to && (S.store == null || N(x.store_id) === S.store); });
-  const open = (list || []).filter((x) => !['closed', 'cancelled', 'refunded', 'shipped'].includes(x.status));
-  const refunds = inPeriod.filter((x) => x.status === 'refunded' || (x.status === 'closed' && x.kind === 'refund'));
+  const rows = f === 'open' ? open : inPeriod;
   $('#page').innerHTML = `
   <div class="kpis">
-    ${kpi('Відкриті', int(open.length), `нових ${int(open.filter((x) => x.status === 'new').length)} · у постачальника ${int(open.filter((x) => ['sent', 'accepted'].includes(x.status)).length)}`)}
-    ${kpi('Обмінів за період', int(inPeriod.filter((x) => x.kind === 'exchange').length), `повернень коштів ${int(inPeriod.filter((x) => x.kind === 'refund').length)}`)}
-    ${kpi('Повернено коштів', uah(refunds.reduce((a, x) => a + N(x.refund_amount), 0)), 'віднято від прибутку магазину')}
-    ${kpi('Доставка обмінів', uah(inPeriod.filter((x) => (x.expense_ids || []).length).reduce((a, x) => a + N(x.delivery_refund), 0)), 'компенсації клієнтам')}
+    ${kpi('Відкриті', int(open.length), `у постачальника ${int(cnt('new') + cnt('supplier'))} · чекають CRM ${int(cnt('approved'))} · чекають ТТН ${int(cnt('created'))}`)}
+    ${kpi('За період', int(exch.length) + ' <span class="muted small">обмінів</span>', `повернень коштів ${int(refunds.length)}${refunded ? ` · виплачено ${uah(refunded)}` : ''}`)}
+    ${kpi('Доплати клієнтів', uah(money), 'наложкою й на реквізити, мінус повернута різниця')}
+    ${kpi('Зарахування постачальника', uah(credit), 'закупка повернутих товарів — звірити з «Обмін д280»')}
   </div>
-  <section class="card"><div class="card-h"><div><h2 class="card-t">Обміни й повернення</h2><div class="card-s">Менеджери додають через форму за посиланням. Статус ТТН оновлюється автоматично; повідомлення в Telegram змінюється разом зі статусом.</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="exF">${[['open', 'Відкриті'], ['done', 'Завершені'], ['all', 'Усі за період']].map(([k, t]) => `<button data-f="${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn sm" id="exTrack">${icon('sync')}Оновити ТТН</button></div></div>
-    <div style="display:flex;flex-direction:column;gap:10px">${rows.map((x) => `<div class="card" style="box-shadow:none;border:1px solid var(--line);margin:0" data-ex="${x.id}">
-      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline"><div><b>${x.kind === 'refund' ? '💸 Повернення коштів' : '🔄 Обмін'} №${x.id}</b> · ${esc(x.client_name || '—')} · <span class="muted">${esc(x.phone || '')}</span> ${x.store_id ? storeTag(x.store_id) : ''}</div>
-        <div><span class="pill ${EX_ST[x.status]?.[1] || ''}">${EX_ST[x.status]?.[0] || esc(x.status)}</span> <span class="muted small">${fdt(x.created_at)} · ${esc(x.manager || '')}</span></div></div>
-      <div class="small" style="margin-top:6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:4px 16px">
-        <div>Товар: <b>${esc(x.items || '—')}</b>${N(x.cost_price) ? ` <span class="muted">(закупка ${uah(N(x.cost_price))})</span>` : ''}</div>
-        <div>${x.kind === 'refund' ? `Повернути: <b>${uah(N(x.refund_amount))}</b>${x.card ? ` · карта ${esc(x.card)}` : ''}` : `Обмін на: <b>${esc(x.new_item || '—')}</b>`}</div>
-        <div>ТТН замовлення: ${esc(x.order_ttn || '—')}${x.order_id ? ` · #${x.order_id}` : ''}</div>
-        <div>↩️ Повернення: <b>${esc(x.ret_ttn || '—')}</b>${x.np_status ? ` <span class="muted">— ${esc(x.np_status)}</span>` : ''}</div>
-        ${x.reason ? `<div>Причина: ${esc(x.reason)}</div>` : ''}
-        ${x.delivery_paid ? `<div>🚚 Доставка: повернути ${uah(N(x.delivery_refund))}</div>` : ''}
-        ${x.new_ttn ? `<div>📦 ТТН обміну: <b>${esc(x.new_ttn)}</b>${x.np_new_status ? ` <span class="muted">— ${esc(x.np_new_status)}</span>` : ''}</div>` : ''}
-        ${x.comment ? `<div style="grid-column:1/-1">💬 ${esc(x.comment)}</div>` : ''}
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">
-        <button class="btn sm" data-copy="${x.id}">📋 Для постачальника</button>
-        ${x.status === 'new' ? `<button class="btn sm" data-st="sent">📤 Надіслано постачальнику</button>` : ''}
-        ${['new', 'sent'].includes(x.status) ? `<button class="btn sm" data-st="accepted">✅ Постачальник прийняв</button>` : ''}
-        ${!['shipped', 'refunded', 'closed', 'cancelled'].includes(x.status) ? (x.kind === 'exchange'
-          ? `<input type="text" inputmode="numeric" placeholder="ТТН обміну" data-nt style="width:170px;min-height:32px"><button class="btn sm primary" data-st="shipped">🚚 Обмін відправлено</button>`
-          : `<input type="text" inputmode="decimal" placeholder="сума" value="${N(x.refund_amount) || ''}" data-ra style="width:100px;min-height:32px"><button class="btn sm primary" data-st="refunded">💸 Кошти повернено</button>`) : ''}
-        ${['shipped', 'refunded'].includes(x.status) ? `<button class="btn sm" data-st="closed">✔️ Закрити</button>` : ''}
-        ${!['closed', 'cancelled'].includes(x.status) ? `<button class="btn sm ghost" data-st="cancelled">Скасувати</button>` : ''}
-        ${x.tg_msg_id ? '' : `<button class="btn sm ghost" data-resend="${x.id}" title="Надіслати в Telegram">✈️ у Telegram</button>`}
-      </div></div>`).join('') || '<div class="empty">Немає обмінів</div>'}</div></section>
-  <div class="grid" style="margin-top:14px">
-    <section class="card c6"><div class="card-h"><div><h2 class="card-t">Посилання для менеджерів</h2><div class="card-s">Форма без входу. Відкривається лише за цим посиланням — не публікуйте його відкрито.</div></div></div>
-      <div id="exLink" class="muted small">Завантаження…</div></section>
-    <section class="card c6"><div class="card-h"><div><h2 class="card-t">Telegram-група</h2><div class="card-s">Бот @odyag_obmin_bot пише сюди нові обміни й оновлює їх статуси</div></div></div>
-      <div id="exTg" class="small">${S.settings.obmin_tg_chat ? `Підключено: чат ${esc(S.settings.obmin_tg_chat)}${S.settings.obmin_tg_thread ? ', тема ' + esc(S.settings.obmin_tg_thread) : ''}` : '<span class="warn-t">Ще не підключено</span>'}</div>
-      <div class="muted small" style="margin:8px 0">Додайте бота в групу адміністратором, напишіть у групі (у потрібній темі) будь-яке повідомлення й натисніть «Знайти групи».</div>
-      <button class="btn sm" id="exFind">Знайти групи</button><div id="exChats" style="margin-top:10px"></div></section>
-  </div>`;
+  <section class="card"><div class="card-h"><div><h2 class="card-t">Обміни й повернення коштів</h2>
+      <div class="card-s">Оформлюють менеджери в Telegram-боті обмінів. Натисніть рядок — історія картки.${sold.length ? ` Продано обмінів: ${int(sold.length)}, результат ${uah(sold.reduce((a, x) => a + N(x.revenue) - N(x.cogs), 0))}.` : ''}</div></div>
+    <div class="seg" id="exF">${[['open', `Відкриті · ${int(open.length)}`], ['period', `За період · ${int(inPeriod.length)}`]].map(([k, t]) => `<button data-f="${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+    <div class="tw"><table class="t" id="exT"><thead><tr><th>Дата</th><th>Клієнт</th><th>Повертає</th><th>Отримає</th><th>Гроші</th><th>Статус</th><th>ТТН</th><th>Менеджер</th></tr></thead>
+    <tbody>${rows.map((x) => {
+      const st = EX_ST[x.status] || [x.status, ''];
+      const crmBad = ['fail', 'return', 'ignore'].includes(x.crm_category);
+      return `<tr data-exr="${x.id}" style="cursor:pointer">
+        <td style="white-space:nowrap">${fdt(x.created_at)}<div class="muted small">№${x.id}${x.kind === 'refund' ? ' · кошти' : ''}</div></td>
+        <td>${esc(x.client || '—')}<div class="muted small">${esc(x.phone || '')}${x.store_id ? ' ' + storeTag(N(x.store_id)) : ''}</div></td>
+        <td class="small">${exItems(x.returned)}<div class="muted">№${esc(x.orig_order_id || '—')}</div></td>
+        <td class="small">${x.kind === 'refund' ? '—' : exItems(exNew(x))}</td>
+        <td class="small">${exPayText(x)}</td>
+        <td><span class="flag ${st[1]}">${esc(st[0])}</span>${x.new_order_id ? `<div class="small ${crmBad ? 'neg' : 'muted'}">CRM №${esc(x.new_order_id)}${x.crm_status ? ' · ' + esc(x.crm_status) : ''}</div>` : ''}${x.crm_state === 'error' ? `<div class="small neg">${esc(x.crm_error || 'помилка CRM')}</div>` : ''}</td>
+        <td class="small">${x.new_ttn ? `<span style="white-space:nowrap">📦 ${esc(x.new_ttn)}</span><br>` : ''}<span style="white-space:nowrap">↩️ ${esc(x.return_ttn || '—')}</span></td>
+        <td class="small">${esc(x.manager || '—')}</td></tr>
+      <tr class="exd" data-exd="${x.id}" hidden><td colspan="8" class="small" style="font-weight:400">
+        ${x.new_address ? `<div>📍 Нова адреса: ${esc(x.new_address)}</div>` : ''}${x.note ? `<div>📝 ${esc(x.note)}</div>` : ''}
+        ${x.refund?.reason ? `<div>Причина: ${esc(x.refund.reason)}</div>` : ''}
+        <div class="muted" style="margin-top:4px">${(Array.isArray(x.history) ? x.history : []).map((h) => `${esc(h.at)} · ${esc(h.by)}: ${esc(h.text)}`).join('<br>') || 'Історії немає'}</div></td></tr>`;
+    }).join('') || `<tr><td colspan="8" class="empty">${f === 'open' ? 'Відкритих обмінів немає' : 'За період обмінів немає'}</td></tr>`}</tbody></table></div></section>`;
   $('#exF').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (b) { S.exF = b.dataset.f; render(); } });
-  $('#exTrack').addEventListener('click', async () => { const b = $('#exTrack'); b.disabled = true; try { const r = await api.sync({ action: 'track' }, 'obmin'); toast(`Перевірено ${r.checked}, змінилось ${r.changed}`); render(); } catch (e) { toast(e.message, true); } finally { b.disabled = false; } });
-  $$('[data-ex]').forEach((card) => {
-    const id = N(card.dataset.ex); const x = rows.find((r) => r.id === id);
-    card.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(supplierText(x)); toast('Шаблон скопійовано — вставте у Viber'); } catch { prompt('Скопіюйте:', supplierText(x)); } return; }
-      if (e.target.closest('[data-resend]')) { try { await api.sync({ action: 'resend', id }, 'obmin'); toast('Надіслано в Telegram'); render(); } catch (err) { toast(err.message, true); } return; }
-      const b = e.target.closest('[data-st]'); if (!b) return;
-      const st = b.dataset.st; const body = { action: 'set_status', id, status: st };
-      if (st === 'shipped') { const v = $('[data-nt]', card)?.value.trim(); if (!v) return toast('Вкажіть ТТН обміну', true); body.new_ttn = v; }
-      if (st === 'refunded') { const v = parseFloat(String($('[data-ra]', card)?.value || '').replace(',', '.')); if (!Number.isFinite(v) || v <= 0) return toast('Вкажіть суму повернення', true); body.refund_amount = v; }
-      if (st === 'cancelled' && !(await confirmBox('Скасувати обмін?', 'Якщо витрати вже внесено — їх буде видалено.', 'Скасувати'))) return;
-      b.disabled = true;
-      try { await api.sync(body, 'obmin'); S.data = null; toast(EX_ST[st][0]); render(); } catch (err) { toast(err.message, true); b.disabled = false; }
-    });
-  });
-  api.sync({ action: 'form_link' }, 'obmin').then((r) => {
-    const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}obmin.html#t=${r.token}`;
-    if ($('#exLink')) { $('#exLink').innerHTML = `<input type="text" readonly value="${esc(url)}" style="width:100%"><div style="margin-top:8px"><button class="btn sm" id="exCopyL">Скопіювати посилання</button></div>`; $('#exCopyL').addEventListener('click', async () => { try { await navigator.clipboard.writeText(url); toast('Скопійовано'); } catch { /* */ } }); }
-  }).catch((e) => { if ($('#exLink')) $('#exLink').textContent = 'Не вдалося отримати посилання: ' + e.message; });
-  $('#exFind').addEventListener('click', async () => {
-    try {
-      const r = await api.sync({ action: 'tg_find' }, 'obmin');
-      $('#exChats').innerHTML = (r.chats || []).map((c) => `<div class="stat-row" style="align-items:center"><span><b>${esc(c.title || c.id)}</b>${Object.keys(c.threads || {}).length ? `<br><select data-th="${esc(c.id)}"><option value="">без теми</option>${Object.entries(c.threads).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>` : ''}</span><button class="btn sm primary" data-use="${esc(c.id)}">Підключити</button></div>`).join('') || '<div class="muted">Груп не знайдено. Перевірте, що бот доданий, і напишіть у групі повідомлення.</div>';
-      $$('[data-use]').forEach((b) => b.addEventListener('click', async () => {
-        const th = $(`[data-th="${CSS.escape(b.dataset.use)}"]`)?.value || null;
-        try { const x = await api.sync({ action: 'tg_set', chat_id: b.dataset.use, thread_id: th }, 'obmin'); if (!x.ok) throw new Error(x.error || 'бот не зміг написати в групу'); await loadRefs(); toast('Групу підключено — перевірте повідомлення в Telegram'); render(); } catch (err) { toast(err.message, true); }
-      }));
-    } catch (e) { toast(e.message, true); }
+  $('#exT').addEventListener('click', (e) => {
+    const r = e.target.closest('[data-exr]'); if (!r) return;
+    const d = $(`[data-exd="${r.dataset.exr}"]`); if (d) d.hidden = !d.hidden;
   });
 };
 
