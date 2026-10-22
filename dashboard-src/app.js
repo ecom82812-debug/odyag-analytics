@@ -1920,7 +1920,8 @@ PAGES.vault = async (seq) => {
 // ================================================================ ОБМІНИ (бот обмінів @odyag_obmin_bot; лише для власника)
 // Дані — з таблиці бота exch_cases через exch_list(): відкриті обміни завжди, решта — за датою створення.
 const EX_ST = { new: ['Новий', 'warn'], supplier: ['У постачальника', 'warn'], approved: ['Підтверджено', 'warn'], created: ['Оформлено в CRM', ''],
-  shipped: ['Відправлено', 'good'], paid: ['Кошти виплачено', 'good'], rejected: ['Відхилено', 'bad'], cancelled: ['Скасовано', 'bad'] };
+  shipped: ['Відправлено', 'good'], received: ['Отримано', 'good'], refused: ['Не забрав', 'bad'],
+  paid: ['Кошти виплачено', 'good'], rejected: ['Відхилено', 'bad'], cancelled: ['Скасовано', 'bad'] };
 const EX_OPEN = ['new', 'supplier', 'approved', 'created'];
 // Старі картки (до кількох позицій) мали один товар у new_item
 const exNew = (x) => (Array.isArray(x.new_items) && x.new_items.length ? x.new_items : x.new_item ? [x.new_item] : []);
