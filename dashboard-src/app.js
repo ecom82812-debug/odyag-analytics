@@ -1923,6 +1923,33 @@ const EX_ST = { new: ['Новий', 'warn'], supplier: ['У постачальн
   shipped: ['Відправлено', 'good'], received: ['Отримано', 'good'], refused: ['Не забрав', 'bad'],
   paid: ['Кошти виплачено', 'good'], rejected: ['Відхилено', 'bad'], cancelled: ['Скасовано', 'bad'] };
 const EX_OPEN = ['new', 'supplier', 'approved', 'created'];
+// Етапи над таблицею: активні (у дорозі — завжди, незалежно від періоду) і закриті (за період)
+const EX_STAGES = [
+  ['active', 'Усі активні', ['new', 'supplier', 'approved', 'created', 'shipped']],
+  ['new', 'Нові', ['new']], ['supplier', 'У постачальника', ['supplier']], ['crm', 'Оформлено в CRM', ['approved', 'created']],
+  ['shipped', 'Відправлено', ['shipped']], ['received', '✅ Отримано', ['received', 'paid']], ['refused', '↩️ Не забрав', ['refused']],
+  ['closed', 'Відхилено / скасовано', ['rejected', 'cancelled']],
+];
+const EX_SLA_DAYS = 5;   // домовленість: постачальник опрацьовує обмін не довше 5 календарних днів від надсилання
+// Коли надіслали постачальнику — останній запис «взято в обробку» в історії картки («22.10 18:12», час Києва)
+const exSentAt = (x) => {
+  const h = (Array.isArray(x.history) ? x.history : []).filter((e) => /взято в обробку/.test(e.text || '')).pop();
+  const m = String(h?.at || '').match(/^(\d{2})\.(\d{2}) (\d{2}):(\d{2})/);
+  if (!m) return null;
+  const c = new Date(x.created_at);
+  let y = c.getFullYear();
+  if (N(m[2]) < c.getMonth() + 1) y++;                     // картка грудня, надіслано в січні
+  return new Date(y, N(m[2]) - 1, N(m[1]), N(m[3]), N(m[4]));
+};
+// Відлік постачальника: { days, overdue, warn, text }
+const exSla = (x) => {
+  const at = exSentAt(x);
+  if (!at) return null;
+  const el = Date.now() - at.getTime(), over = el - EX_SLA_DAYS * 86400000;
+  if (over > 0) return { overdue: true, over, text: `🔴 прострочено на ${Math.ceil(over / 86400000)} дн.` };
+  const day = Math.floor(el / 86400000) + 1;               // 1-й … 5-й день
+  return { over, warn: day >= EX_SLA_DAYS - 1, text: `${day >= EX_SLA_DAYS - 1 ? '🟠' : '⏱'} ${day}-й день з ${EX_SLA_DAYS}` };
+};
 // Старі картки (до кількох позицій) мали один товар у new_item
 const exNew = (x) => (Array.isArray(x.new_items) && x.new_items.length ? x.new_items : x.new_item ? [x.new_item] : []);
 const exItems = (list) => (Array.isArray(list) ? list : []).map((it) =>
@@ -1954,36 +1981,45 @@ PAGES.obmin = async (seq) => {
   const refunded = refunds.filter((x) => x.status === 'paid').reduce((a, x) => a + N(x.refund?.amount), 0);
   const credit = live.reduce((a, x) => a + exCost(x.returned), 0);
   const sold = exch.filter((x) => x.crm_category === 'success');
-  const f = S.exF || 'open';
-  const rows = f === 'open' ? open : inPeriod;
+  const f = EX_STAGES.some(([k]) => k === S.exF) ? S.exF : 'active';
+  // активні етапи — усі незакриті (і давніші за період), закриті — створені за період
+  const stageRows = ([k, , sts]) => (['active', 'new', 'supplier', 'crm', 'shipped'].includes(k) ? all : inPeriod).filter((x) => sts.includes(x.status));
+  const stage = EX_STAGES.find(([k]) => k === f);
+  let rows = stageRows(stage);
+  // у постачальника — спершу ті, що чекають найдовше
+  if (f === 'supplier') rows = [...rows].sort((a, b) => N(exSla(b)?.over ?? -1e12) - N(exSla(a)?.over ?? -1e12));
+  const late = open.filter((x) => x.status === 'supplier' && exSla(x)?.overdue).length;
   $('#page').innerHTML = `
   <div class="kpis">
-    ${kpi('Відкриті', int(open.length), `у постачальника ${int(cnt('new') + cnt('supplier'))} · чекають CRM ${int(cnt('approved'))} · чекають ТТН ${int(cnt('created'))}`)}
+    ${kpi('Відкриті', int(open.length), `у постачальника ${int(cnt('new') + cnt('supplier'))}${late ? ` · <span class="neg">прострочено ${int(late)}</span>` : ''} · чекають CRM ${int(cnt('approved'))} · чекають ТТН ${int(cnt('created'))}`)}
     ${kpi('За період', int(exch.length) + ' <span class="muted small">обмінів</span>', `повернень коштів ${int(refunds.length)}${refunded ? ` · виплачено ${uah(refunded)}` : ''}`)}
     ${kpi('Доплати клієнтів', uah(money), 'наложкою й на реквізити, мінус повернута різниця')}
     ${kpi('Зарахування постачальника', uah(credit), 'закупка повернутих товарів — звірити з «Обмін д280»')}
   </div>
   <section class="card"><div class="card-h"><div><h2 class="card-t">Обміни й повернення коштів</h2>
       <div class="card-s">Оформлюють менеджери в Telegram-боті обмінів. Натисніть рядок — історія картки.${sold.length ? ` Продано обмінів: ${int(sold.length)}, результат ${uah(sold.reduce((a, x) => a + N(x.revenue) - N(x.cogs), 0))}.` : ''}</div></div>
-    <div class="seg" id="exF">${[['open', `Відкриті · ${int(open.length)}`], ['period', `За період · ${int(inPeriod.length)}`]].map(([k, t]) => `<button data-f="${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+    </div>
+    <div class="seg" id="exF" style="flex-wrap:wrap;margin:0 0 10px">${EX_STAGES.map((s) => `<button data-f="${s[0]}" class="${f === s[0] ? 'on' : ''}">${s[1]} · ${int(stageRows(s).length)}</button>`).join('')}</div>
+    <div class="muted small" style="margin:-4px 0 8px">${['received', 'refused', 'closed'].includes(f) ? 'Створені за вибраний період.' : 'Усі незакриті — незалежно від періоду.'} Постачальник опрацьовує обмін до ${EX_SLA_DAYS} календарних днів від надсилання шаблону.</div>
     <div class="tw"><table class="t" id="exT"><thead><tr><th>Дата</th><th>Клієнт</th><th>Повертає</th><th>Отримає</th><th>Гроші</th><th>Статус</th><th>ТТН</th><th>Менеджер</th></tr></thead>
     <tbody>${rows.map((x) => {
       const st = EX_ST[x.status] || [x.status, ''];
       const crmBad = ['fail', 'return', 'ignore'].includes(x.crm_category);
+      const sla = x.status === 'supplier' ? exSla(x) : null;
       return `<tr data-exr="${x.id}" style="cursor:pointer">
         <td style="white-space:nowrap">${fdt(x.created_at)}<div class="muted small">№${x.id}${x.kind === 'refund' ? ' · кошти' : ''}</div></td>
         <td>${esc(x.client || '—')}<div class="muted small">${esc(x.phone || '')}${x.store_id ? ' ' + storeTag(N(x.store_id)) : ''}</div></td>
         <td class="small">${exItems(x.returned)}<div class="muted">№${esc(x.orig_order_id || '—')}</div></td>
         <td class="small">${x.kind === 'refund' ? '—' : exItems(exNew(x))}</td>
         <td class="small">${exPayText(x)}</td>
-        <td><span class="flag ${st[1]}">${esc(st[0])}</span>${x.new_order_id ? `<div class="small ${crmBad ? 'neg' : 'muted'}">CRM №${esc(x.new_order_id)}${x.crm_status ? ' · ' + esc(x.crm_status) : ''}</div>` : ''}${x.crm_state === 'error' ? `<div class="small neg">${esc(x.crm_error || 'помилка CRM')}</div>` : ''}</td>
+        <td><span class="flag ${st[1]}">${esc(st[0])}</span>${sla ? `<div class="small ${sla.overdue ? 'neg' : sla.warn ? '' : 'muted'}" style="white-space:nowrap${sla.warn ? ';color:var(--warn)' : ''}">${sla.text}</div>` : ''}${x.new_order_id ? `<div class="small ${crmBad ? 'neg' : 'muted'}">CRM №${esc(x.new_order_id)}${x.crm_status ? ' · ' + esc(x.crm_status) : ''}</div>` : ''}${x.crm_state === 'error' ? `<div class="small neg">${esc(x.crm_error || 'помилка CRM')}</div>` : ''}</td>
         <td class="small">${x.new_ttn ? `<span style="white-space:nowrap">📦 ${esc(x.new_ttn)}</span><br>` : ''}<span style="white-space:nowrap">↩️ ${esc(x.return_ttn || '—')}</span></td>
         <td class="small">${esc(x.manager || '—')}</td></tr>
       <tr class="exd" data-exd="${x.id}" hidden><td colspan="8" class="small" style="font-weight:400">
         ${x.new_address ? `<div>📍 Нова адреса: ${esc(x.new_address)}</div>` : ''}${x.note ? `<div>📝 ${esc(x.note)}</div>` : ''}
         ${x.refund?.reason ? `<div>Причина: ${esc(x.refund.reason)}</div>` : ''}
         <div class="muted" style="margin-top:4px">${(Array.isArray(x.history) ? x.history : []).map((h) => `${esc(h.at)} · ${esc(h.by)}: ${esc(h.text)}`).join('<br>') || 'Історії немає'}</div></td></tr>`;
-    }).join('') || `<tr><td colspan="8" class="empty">${f === 'open' ? 'Відкритих обмінів немає' : 'За період обмінів немає'}</td></tr>`}</tbody></table></div></section>`;
+    }).join('') || `<tr><td colspan="8" class="empty">${['received', 'refused', 'closed'].includes(f) ? 'За період таких обмінів немає' : 'Таких обмінів зараз немає'}</td></tr>`}</tbody></table></div></section>`;
   $('#exF').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (b) { S.exF = b.dataset.f; render(); } });
   $('#exT').addEventListener('click', (e) => {
     const r = e.target.closest('[data-exr]'); if (!r) return;
