@@ -2210,7 +2210,8 @@ async function payoutsPage(seq) {
   const share = monthly ? (P.share != null ? P.share : shareAuto) : 0;
   // Бонуси/штрафи, збережені заздалегідь і ще не виплачені — автоматично йдуть у цю виплату
   const pendAdj = (adjAll || []).filter((a) => N(a.manager_id) === m.id && !a.payout_id).sort((a, b) => String(a.day).localeCompare(String(b.day)) || N(a.id) - N(b.id));
-  const adjLabel = (a) => (a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim();
+  // «Штраф (за що)» / «Бонус (за що)» — щоб у тексті для менеджера було видно, що це
+  const adjLabel = (a) => { const kind = N(a.amount) > 0 ? 'Бонус' : 'Штраф'; const l = String(a.label || '').trim(); return !l || /^(штраф|бонус)$/i.test(l) ? kind : `${kind} (${l})`; };
   const adjT = pendAdj.reduce((s, a) => s + N(a.amount), 0);
   const total = oPay + uPay + adjT + share;
   const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}${monthly ? '.' + P.oTo.slice(0, 4) : ''}`, '',
