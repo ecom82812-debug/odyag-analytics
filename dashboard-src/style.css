@@ -565,3 +565,9 @@ input[type="date"], input[type="month"], input[type="datetime-local"] { min-widt
 .rate-hist .icon-btn { width: 22px; height: 22px; vertical-align: middle; }
 
 .btn:disabled { opacity: .5; cursor: default; }
+.adj-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.adj-item { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto 30px; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.adj-item .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adj-item b.pos { color: var(--good); } .adj-item b.neg { color: var(--bad); }
+.adj-add { display: grid; grid-template-columns: 130px 140px minmax(0, 1fr) 100px auto; gap: 6px; align-items: center; }
+@media (max-width: 700px) { .adj-add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .adj-add #adjLabel, .adj-add .btn { grid-column: 1 / -1; justify-content: center; } }

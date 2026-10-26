@@ -577,6 +577,12 @@ input[type="date"], input[type="month"], input[type="datetime-local"] { min-widt
 .rate-hist .icon-btn { width: 22px; height: 22px; vertical-align: middle; }
 
 .btn:disabled { opacity: .5; cursor: default; }
+.adj-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.adj-item { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto 30px; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.adj-item .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adj-item b.pos { color: var(--good); } .adj-item b.neg { color: var(--bad); }
+.adj-add { display: grid; grid-template-columns: 130px 140px minmax(0, 1fr) 100px auto; gap: 6px; align-items: center; }
+@media (max-width: 700px) { .adj-add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .adj-add #adjLabel, .adj-add .btn { grid-column: 1 / -1; justify-content: center; } }
 
 </style>
 </head>
@@ -2142,7 +2148,7 @@ async function payoutsPage(seq) {
   if (!mgrs.length) { $('#page').innerHTML = '<div class="card"><div class="empty">Менеджерів ще немає</div></div>'; return; }
   const rot = (Array.isArray(S.settings.shift_rotation) ? S.settings.shift_rotation : [4, 5]).map(N);
   if (!S.payMgr || !mgrs.some((m) => m.id === S.payMgr)) S.payMgr = (mgrs.find((m) => rot.includes(m.id)) || mgrs[0]).id;
-  const [payouts, shifts] = await Promise.all([api.rows('mgr_payouts').catch(() => []), api.rpc('stats_shifts', { p_from: addDays(today, -60), p_to: today }).catch(() => [])]);
+  const [payouts, shifts, adjAll] = await Promise.all([api.rows('mgr_payouts').catch(() => []), api.rpc('stats_shifts', { p_from: addDays(today, -60), p_to: today }).catch(() => []), api.rows('mgr_adjustments').catch(() => [])]);
   if (seq !== renderSeq) return;
   const mine = (id) => payouts.filter((x) => N(x.manager_id) === id).sort((a, b) => String(b.orders_to).localeCompare(String(a.orders_to)) || N(b.id) - N(a.id));
   // Кінець останнього завершеного блоку змін менеджера (з CRM)
@@ -2202,14 +2208,17 @@ async function payoutsPage(seq) {
     shareNet = S.payShareCache.net; shareAuto = Math.round(Math.max(0, shareNet) * N(shareP.value) / 100);
   }
   const share = monthly ? (P.share != null ? P.share : shareAuto) : 0;
-  const adjT = P.adj.reduce((s, a) => s + N(a.amount), 0);
+  // Бонуси/штрафи, збережені заздалегідь і ще не виплачені — автоматично йдуть у цю виплату
+  const pendAdj = (adjAll || []).filter((a) => N(a.manager_id) === m.id && !a.payout_id).sort((a, b) => String(a.day).localeCompare(String(b.day)) || N(a.id) - N(b.id));
+  const adjLabel = (a) => (a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim();
+  const adjT = pendAdj.reduce((s, a) => s + N(a.amount), 0);
   const total = oPay + uPay + adjT + share;
   const text = [`Виплата ${m.name}  з ${dm(P.oFrom)} по ${dm(P.oTo)}${monthly ? '.' + P.oTo.slice(0, 4) : ''}`, '',
     monthly ? `% від чистого прибутку: ${gr(share)} грн.` : null,
     oParts.length > 1 ? `К-ть замовлень: ${cnt} шт. (${oExpr}) = ${gr(oPay, true)} грн.` : `К-ть замовлень: ${oExpr} = ${gr(oPay, true)} грн.`,
     monthly && !ups ? 'Допродаж на суму: 0 грн.' : null,
     ups ? (uParts.length > 1 ? `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${gr(ups)} грн. (${uExpr}) = ${gr(uPay)} грн.` : `Допродаж з ${dm(P.uFrom)} - ${dm(P.uTo)} на суму: ${uExpr} = ${gr(uPay)} грн.`) : null,
-    ...P.adj.filter((a) => N(a.amount)).map((a) => `${(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim()}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
+    ...pendAdj.filter((a) => N(a.amount)).map((a) => `${adjLabel(a)}: ${N(a.amount) > 0 ? '' : '-'}${gr(Math.abs(N(a.amount)))} грн.`),
     '', `Разом до виплати: ${gr(total, monthly)} грн.`].filter((x) => x !== null).join('\n');
   // Квадратики днів допродажу: колір — статус допродажу дня; натиск — замовлення дня
   const uo = await api.rpc('mgr_upsell_orders', { p_mgr: m.id, p_from: P.uFrom, p_to: [P.oTo, today].sort()[1] }).catch(() => []);
@@ -2249,9 +2258,9 @@ async function payoutsPage(seq) {
         <div class="pay-dates"><input type="date" data-p="uFrom" value="${P.uFrom}"><span>—</span><input type="date" data-p="uTo" value="${P.uTo}"></div>
         ${days.length ? `<div class="pay-bar">${bar}</div><div class="pay-lg"><span><i class="ok"></i>усе викуплено</span><span><i class="wait"></i>є в дорозі</span><span><i class="fail"></i>лише відмови</span><span><i class="none"></i>без допродажу</span><span><i class="dotl"></i>була відмова</span><span class="muted">бліді — після межі · натисніть на день, щоб побачити замовлення</span></div>${dayBox}` : ''}</div>
       <div class="pay-sec"><div class="pay-l">Бонуси, доплати, штрафи</div>
-        <div id="adjRows">${P.adj.map((a, i) => `<div class="adj-row"><input type="text" placeholder="${N(a.amount) < 0 ? 'Штраф' : 'Бонус на день народження'}" value="${esc(a.label || '')}" data-al="${i}"><input type="text" inputmode="decimal" placeholder="0" value="${a.amount ?? ''}" data-aa="${i}" class="${N(a.amount) < 0 ? 'neg' : ''}"><button class="icon-btn" data-ad="${i}" title="Прибрати">${icon('trash')}</button></div>`).join('')}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" data-addadj="1">${icon('plus')}Бонус / доплата</button><button class="btn sm" data-addadj="-1">${icon('plus')}Штраф</button></div>
-        <div class="muted small" style="margin-top:6px">Бонуси й штрафи потрапляють у витрати «${PAY_CAT}» у день виплати і впливають на чистий прибуток.</div></div>
+        <div class="adj-list">${pendAdj.map((a) => `<div class="adj-item"><span class="muted small">${fdate(String(a.day).slice(0, 10))}</span><span class="lb">${esc(adjLabel(a))}</span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b><button class="icon-btn" data-adjdel="${a.id}" title="Видалити (ще не виплачено)">${icon('trash')}</button></div>`).join('') || '<div class="muted small">Поки немає. Внесіть штраф чи бонус у день, коли він стався — він збережеться і сам потрапить у наступну виплату.</div>'}</div>
+        <div class="adj-add"><select id="adjKind"><option value="-1">Штраф</option><option value="1">Бонус / доплата</option></select><input type="date" id="adjDay" value="${today}"><input type="text" id="adjLabel" placeholder="За що (необов'язково)"><input type="text" id="adjAmt" inputmode="decimal" placeholder="Сума, ₴"><button class="btn sm primary" id="adjSave">${icon('check')}Зберегти</button></div>
+        <div class="muted small" style="margin-top:6px">Збережені записи чекають на виплату — до неї їх можна видалити. При збереженні виплати вони потрапляють у неї та у витрати «${PAY_CAT}» у день виплати.</div></div>
       <div class="pay-sec"><label class="f" style="max-width:220px">Дата виплати<input type="date" data-p="paidAt" value="${P.paidAt}"></label></div>
     </section>
     <section class="card pay-sum">
@@ -2260,7 +2269,7 @@ async function payoutsPage(seq) {
         ${monthly ? `<div class="stat-row"><span>% від чистого прибутку (${gr(N(shareP.value))}%)</span><b>${gr(share)} ₴</b></div>` : ''}
         ${(oParts.length ? oParts : [[rate, 0]]).map(([r, n]) => `<div class="stat-row"><span>${n} шт × ${gr(r)} ₴</span><b>${gr(r * n, true)} ₴</b></div>`).join('')}
         ${uParts.length ? uParts.map(([p, v]) => `<div class="stat-row"><span>Допродаж ${dm(P.uFrom)}–${dm(P.uTo)}: ${gr(v)} ₴ × ${gr(p * 100)}%</span><b>${gr(Math.round(p * v * 100) / 100)} ₴</b></div>`).join('') : '<div class="stat-row"><span>Допродаж — немає</span><b>0 ₴</b></div>'}
-        ${P.adj.filter((a) => N(a.amount)).map((a) => `<div class="stat-row"><span>${esc(a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф'))}</span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b></div>`).join('')}
+        ${pendAdj.filter((a) => N(a.amount)).map((a) => `<div class="stat-row"><span>${esc(adjLabel(a))} <span class="muted small">${dm(String(a.day).slice(0, 10))}</span></span><b class="${N(a.amount) < 0 ? 'neg' : 'pos'}">${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴</b></div>`).join('')}
       </div>
       <div class="pay-total"><span>Разом до виплати</span><b>${gr(total)} ₴</b></div>
       <pre class="pay-text" id="payText">${esc(text)}</pre>
@@ -2283,10 +2292,21 @@ async function payoutsPage(seq) {
     P[k] = inp.value; if (k === 'uTo') P.autoU = false; if (k === 'uFrom' || k === 'oTo') P.autoU = P.autoU && k !== 'uFrom'; rerender(); }));
   $$('[data-uto]').forEach((b) => b.addEventListener('click', () => { P.uTo = b.dataset.uto; P.autoU = false; rerender(); }));
   $$('[data-uday]').forEach((b) => b.addEventListener('click', () => { P.uday = P.uday === b.dataset.uday ? null : b.dataset.uday; rerender(); }));
-  $$('[data-addadj]').forEach((b) => b.addEventListener('click', () => { P.adj.push({ label: '', amount: b.dataset.addadj === '-1' ? -100 : '' }); rerender(); }));
-  $$('[data-ad]').forEach((b) => b.addEventListener('click', () => { P.adj.splice(N(b.dataset.ad), 1); rerender(); }));
-  $$('[data-al]').forEach((inp) => inp.addEventListener('change', () => { P.adj[N(inp.dataset.al)].label = inp.value; rerender(); }));
-  $$('[data-aa]').forEach((inp) => inp.addEventListener('change', () => { const v = parseFloat(inp.value.replace(/\s/g, '').replace(',', '.')); P.adj[N(inp.dataset.aa)].amount = Number.isFinite(v) ? v : ''; rerender(); }));
+  $('#adjSave').addEventListener('click', async (e) => {
+    const v = parseFloat(($('#adjAmt').value || '').replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(v) || v === 0) return toast('Вкажіть суму', true);
+    const sign = N($('#adjKind').value) < 0 ? -1 : 1;
+    e.target.disabled = true;
+    try {
+      await api.insert('mgr_adjustments', { manager_id: m.id, day: $('#adjDay').value || today, label: $('#adjLabel').value.trim() || (sign < 0 ? 'Штраф' : 'Бонус'), amount: sign * Math.abs(v), created_by: S.user?.email || null });
+      toast(sign < 0 ? 'Штраф збережено' : 'Бонус збережено'); rerender();
+    } catch (err) { toast(err.message, true); e.target.disabled = false; }
+  });
+  $$('[data-adjdel]').forEach((b) => b.addEventListener('click', async () => {
+    const a = pendAdj.find((x) => N(x.id) === N(b.dataset.adjdel)); if (!a) return;
+    if (!(await confirmBox('Видалити запис?', `${adjLabel(a)} ${N(a.amount) > 0 ? '+' : '−'}${gr(Math.abs(N(a.amount)))} ₴ від ${fdate(String(a.day).slice(0, 10))}`))) return;
+    try { await api.remove('mgr_adjustments', N(a.id)); toast('Видалено'); rerender(); } catch (err) { toast(err.message, true); }
+  }));
   const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast('Текст скопійовано — вставте в Telegram'); } catch { prompt('Скопіюйте текст:', t); } };
   $('#payCopy').addEventListener('click', () => copy(text));
   $('#paySave').addEventListener('click', async (e) => {
@@ -2295,7 +2315,7 @@ async function payoutsPage(seq) {
     if (clash && !(await confirmBox('Періоди перетинаються', `Уже є виплата ${m.name} за ${dm(String(clash.orders_from).slice(0, 10))}–${dm(String(clash.orders_to).slice(0, 10))}. Зберегти все одно?`, 'Зберегти'))) return;
     e.target.disabled = true;
     try {
-      const adj = P.adj.filter((a) => N(a.amount)).map((a) => ({ label: (a.label || (N(a.amount) > 0 ? 'Бонус' : 'Штраф')).trim(), amount: N(a.amount) }));
+      const adj = pendAdj.filter((a) => N(a.amount)).map((a) => ({ id: N(a.id), day: String(a.day).slice(0, 10), label: adjLabel(a), amount: N(a.amount) }));
       const row = await api.insert('mgr_payouts', { manager_id: m.id, paid_at: P.paidAt, orders_from: P.oFrom, orders_to: P.oTo, orders_cnt: cnt, rate, orders_pay: oPay,
         upsell_from: ups ? P.uFrom : null, upsell_to: P.uTo >= P.uFrom ? P.uTo : (last?.upsell_to || null), upsell_sum: ups, upsell_pct: upct, upsell_pay: uPay,
         adjustments: adj, adj_total: adjT, total, comment: text, created_by: S.user?.email || null,
@@ -2305,14 +2325,16 @@ async function payoutsPage(seq) {
           comment: `${m.name}: ${adj.map((a) => `${a.label} ${a.amount > 0 ? '+' : ''}${gr(a.amount)}`).join(', ')}` });
         await api.update('mgr_payouts', row.id, { expense_id: ex.id });
       }
+      for (const a of adj) await api.update('mgr_adjustments', a.id, { payout_id: row.id });
       S.pay = null; S.data = null; toast('Виплату збережено'); rerender();
     } catch (err) { toast(err.message, true); e.target.disabled = false; }
   });
   $$('[data-pcopy]').forEach((b) => b.addEventListener('click', () => { const x = payouts.find((y) => N(y.id) === N(b.dataset.pcopy)); if (x) copy(x.comment || ''); }));
   $$('[data-pdel]').forEach((b) => b.addEventListener('click', async () => {
     const x = payouts.find((y) => N(y.id) === N(b.dataset.pdel)); if (!x) return;
-    if (!(await confirmBox('Видалити виплату?', `${mgrName(x.manager_id)}, ${gr(N(x.total))} ₴. Бонуси й штрафи цієї виплати теж зникнуть з витрат.`))) return;
-    try { if (x.expense_id) await api.remove('expenses', N(x.expense_id)); await api.remove('mgr_payouts', N(x.id)); S.pay = null; S.data = null; toast('Видалено'); rerender(); } catch (err) { toast(err.message, true); }
+    if (!(await confirmBox('Видалити виплату?', `${mgrName(x.manager_id)}, ${gr(N(x.total))} ₴. Її бонуси й штрафи зникнуть з витрат і знову чекатимуть на виплату.`))) return;
+    try { if (x.expense_id) await api.remove('expenses', N(x.expense_id));
+      for (const a of (adjAll || []).filter((y) => N(y.payout_id) === N(x.id))) await api.update('mgr_adjustments', N(a.id), { payout_id: null }); await api.remove('mgr_payouts', N(x.id)); S.pay = null; S.data = null; toast('Видалено'); rerender(); } catch (err) { toast(err.message, true); }
   }));
 }
 
