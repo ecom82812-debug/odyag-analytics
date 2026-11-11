@@ -81,9 +81,15 @@ const I = {
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   tg: '<path d="M21 4 3 11l6.5 2.5L12 20l3.5-4.5L20 19z"/><path d="m9.5 13.5 7-6"/>',
+  trend: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6 15h4"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  cart: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21.5 8H6"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
-const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="9" fill="#e9b8c9"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#2a1d2c" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const LOGO = `<svg class="logo-mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="10" fill="#5b4bdb"/><path d="M14.2 11.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.9-1.1 1.6v.9" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M17 16.3 6.6 22.6c-.9.6-.5 2 .6 2h19.6c1.1 0 1.5-1.4.6-2L17 16.3z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
 // ---------------------------------------------------------------- доступ до даних (Supabase)
 function createLiveApi() {
@@ -537,7 +543,7 @@ new MutationObserver((ms) => { if (ms.some((m) => [...m.addedNodes].some((n) => 
 
 // ---------------------------------------------------------------- графіки
 const charts = {};
-const FONT = 'Onest, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+const FONT = 'Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 const crosshair = { id: 'crosshair', afterDraw(c) { const a = c.tooltip?.getActiveElements?.(); if (!a?.length || c.config.type !== 'line') return; const x = a[0].element.x, { top, bottom } = c.chartArea, g = c.ctx; g.save(); g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.lineWidth = 1; g.strokeStyle = css('--ink-3'); g.globalAlpha = .45; g.stroke(); g.restore(); } };
 function chart(id, type, labels, datasets, fmt, opts = {}) {
   if (!window.Chart) { const el = document.getElementById(id); if (el) el.parentElement.innerHTML = '<div class="empty">Графік недоступний: бібліотеку не завантажено</div>'; return; }
@@ -572,7 +578,7 @@ function sparkSvg(vals) {
   const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
   const zero = h - 3 - (0 - min) / (max - min || 1) * (h - 6);
   const last = pts[pts.length - 1];
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="M0 ${zero.toFixed(1)}H${w}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 4"/><path d="${d} L${w} ${h} L0 ${h}Z" fill="rgba(233,184,201,.16)"/><path d="${d}" fill="none" stroke="#e9b8c9" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="3" fill="#e9b8c9"/></svg>`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="M0 ${zero.toFixed(1)}H${w}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 4"/><path d="${d} L${w} ${h} L0 ${h}Z" fill="rgba(255,255,255,.14)"/><path d="${d}" fill="none" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="3" fill="#fff"/></svg>`;
 }
 
 // ---------------------------------------------------------------- спільні блоки
@@ -591,7 +597,16 @@ function archiveHint(T) {
   return `<div class="hint" style="margin-bottom:14px">Дні до ${fdate(String(S.settings.archive_until || '').replace(/"/g, ''))} — <b>архів старого дашборду</b>: цифри перенесено як були. Статуси, причини відмов, UTM-канали і собівартість товарів за ці дні недоступні.</div>`;
 }
 const usdf = (v) => (v == null || !Number.isFinite(v) ? '—' : nf2.format(Math.round(v * 100) / 100) + ' $');
-const kpi = (l, v, s, dl = '', cls = '') => `<div class="kpi ${cls}"><div class="kpi-l"><span>${l}</span>${dl}</div><div class="kpi-v">${v}</div>${s ? `<div class="kpi-s">${s}</div>` : ''}</div>`;
+// Іконка в кружечку біля назви показника (тема «Лаванда») — підбирається за назвою
+const KPI_IC = [
+  [/відмов|поверн/i, 'undo', 't-r'], [/реклам|ROAS|ROMI|CPO|Ціна л|Ціна з|Ціна п|Покази|Кліки/i, 'ads', 't-o'],
+  [/прибут|дохід|маржа/i, 'trend', 't-t'], [/з\/п|менеджер|Команда|Власник/i, 'users', 't-p'],
+  [/оплат|банк|постачальн|ФОП|Доплат/i, 'card', ''], [/Викуп|Конверс/i, 'target', 't-t'],
+  [/шт|Товар|Продано|Допродаж/i, 'box', 't-o'], [/Заявк|Ліди|Замовлен|Підтвердж|Відкрит|Продажі/i, 'cart', ''],
+  [/витрат/i, 'wallet', 't-p'], [/Магазин/i, 'shop', ''], [/чек|Виручк|Інші доход|За період/i, 'coin', ''],
+];
+const kIc = (l, hero) => { const t = String(l).replace(/<[^>]+>/g, ''); const m = KPI_IC.find(([re]) => re.test(t)) || [0, 'coin', '']; return `<i class="kpi-ic ${hero ? 't-w' : m[2]}">${icon(m[1])}</i>`; };
+const kpi = (l, v, s, dl = '', cls = '') => `<div class="kpi ${cls}"><div class="kpi-l"><span class="kpi-n">${kIc(l, /hero/.test(cls))}<span>${l}</span></span>${dl}</div><div class="kpi-v">${v}</div>${s ? `<div class="kpi-s">${s}</div>` : ''}</div>`;
 function targetFlag(v, target, better = 'higher', fmt = pct) {
   if (v == null || target == null || target === '') return '';
   const ok = better === 'higher' ? v >= target : v <= target;
@@ -657,7 +672,7 @@ PAGES.overview = async (seq) => {
   const daySer = series(D.days, 'day');
   $('#page').innerHTML = `${archiveHint(T)}
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Чистий прибуток</span>${delta(T.net, PT.net)}</div><div class="kpi-v ${T.net < 0 ? 'neg' : ''}">${uah(T.net)}</div><div class="kpi-s">Рентабельність ${pct(T.netMargin)} · після всіх витрат</div>${sparkSvg(daySer.map((x) => x.net))}</div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Чистий прибуток</span></span>${delta(T.net, PT.net)}</div><div class="kpi-v ${T.net < 0 ? 'neg' : ''}">${uah(T.net)}</div><div class="kpi-s">Рентабельність ${pct(T.netMargin)} · після всіх витрат</div>${sparkSvg(daySer.map((x) => x.net))}</div>
     ${kpi('Виручка', uah(T.revenue), `${int(T.sales)} продажів${T.pending ? ` · з них ${int(T.pending)} ще в дорозі` : ''}`, delta(T.revenue, PT.revenue))}
     ${kpi('Валовий прибуток', uah(T.gross), `Маржа ${pct(T.grossMargin)}`, delta(T.gross, PT.gross))}
     ${kpi('Заявки', int(T.leads), `Підтв. ${int(T.confirmed)} (${pct(T.confRate, 0)}) · не підтв. ${int(T.unconfirmed)}`, delta(T.leads, PT.leads))}
@@ -720,7 +735,7 @@ PAGES.stores = async (seq) => {
   const tg = S.settings.targets || {};
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Чистий прибуток усіх магазинів</span></div><div class="kpi-v ${net < 0 ? 'neg' : ''}">${uah(net)}</div><div class="kpi-s">${split ? `Сума прибутку магазинів · загальні витрати ${uah(general)} вже розділені порівну` : `Прибуток магазинів ${uah(net + general)} − загальні витрати ${uah(general)}`}</div></div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Чистий прибуток усіх магазинів</span></span></div><div class="kpi-v ${net < 0 ? 'neg' : ''}">${uah(net)}</div><div class="kpi-s">${split ? `Сума прибутку магазинів · загальні витрати ${uah(general)} вже розділені порівну` : `Прибуток магазинів ${uah(net + general)} − загальні витрати ${uah(general)}`}</div></div>
     ${kpi('Виручка разом', uah(rev), `${int(rows.reduce((a, r) => a + r.T.sales, 0))} продажів`)}
     ${kpi('Реклама разом', uah(rows.reduce((a, r) => a + r.T.ads, 0) + G.ads), G.ads ? `з них загальна ${uah(G.ads)}` : 'по магазинах')}
     ${kpi('Загальні витрати', uah(general), split ? `порівну: по ${uah(general / rows.length)} на магазин` : 'не діляться між магазинами')}
@@ -1010,7 +1025,7 @@ PAGES.months = async (seq) => {
   const YT = totals(Object.values(days));
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Чистий прибуток за ${y}</span></div><div class="kpi-v ${YT.net < 0 ? 'neg' : ''}">${uah(YT.net)}</div><div class="kpi-s">Рентабельність ${pct(YT.netMargin)}</div>${sparkSvg(ms.map((m) => m.net))}</div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Чистий прибуток за ${y}</span></span></div><div class="kpi-v ${YT.net < 0 ? 'neg' : ''}">${uah(YT.net)}</div><div class="kpi-s">Рентабельність ${pct(YT.netMargin)}</div>${sparkSvg(ms.map((m) => m.net))}</div>
     ${kpi('Виручка', uah(YT.revenue), `${int(YT.sales)} продажів`)}
     ${kpi('Валовий прибуток', uah(YT.gross), `Маржа ${pct(YT.grossMargin)}`)}
     ${kpi('Реклама', uah(YT.ads), `ДРР ${pct(YT.drr)}`)}
@@ -1674,7 +1689,7 @@ PAGES.salary = async (seq) => {
   const hs = series(hist.days, 'month');
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Залишається в бізнесі</span></div><div class="kpi-v ${left < 0 ? 'neg' : ''}">${uah(left)}</div><div class="kpi-s">Чистий прибуток ${uah(net)} − виплати власникам ${uah(ownersTotal)}${partial ? ' · місяць ще триває' : ''}</div></div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Залишається в бізнесі</span></span></div><div class="kpi-v ${left < 0 ? 'neg' : ''}">${uah(left)}</div><div class="kpi-s">Чистий прибуток ${uah(net)} − виплати власникам ${uah(ownersTotal)}${partial ? ' · місяць ще триває' : ''}</div></div>
     ${kpi('Чистий прибуток бізнесу', `<span class="${net < 0 ? 'neg' : ''}">${uah(net)}</span>`, `${MONTHS[+m.slice(5, 7) - 1]} · усі магазини`)}
     ${kpi('Власникам і частки', uah(ownersTotal), owners.map((p) => esc(p.name)).join(' · ') || 'додайте власників нижче')}
     ${kpi('Команда й UGC', uah(teamTotal), 'вже віднято від прибутку')}
@@ -1781,7 +1796,7 @@ PAGES.payments = async (seq) => {
   const kindTag = (r) => (r.kind === 'full' ? '<span class="pill success">повна оплата</span>' : `<span class="pill work">ПП${r.category === 'fail' ? ' · відмова' : ''}</span>`);
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Оплати на рахунок</span></div><div class="kpi-v">${uah(sum(rows) + manSum + archSum)}</div><div class="kpi-s">${int(rows.length)} замовлень із CRM${manSum ? ` · ручні корекції ${uah(manSum)}` : ''}${archSum ? ` · до ${fdate(arch)} — ${uah(archSum)} зі старого дашборду` : ''}</div></div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Оплати на рахунок</span></span></div><div class="kpi-v">${uah(sum(rows) + manSum + archSum)}</div><div class="kpi-s">${int(rows.length)} замовлень із CRM${manSum ? ` · ручні корекції ${uah(manSum)}` : ''}${archSum ? ` · до ${fdate(arch)} — ${uah(archSum)} зі старого дашборду` : ''}</div></div>
     ${kpi('Повні оплати', uah(sum(full)), `${int(full.length)} замовлень`)}
     ${kpi('Передоплати (ПП)', uah(sum(pp)), `${int(pp.length)} замовлень${pp.some((r) => r.category === 'fail') ? ` · з них у відмовах ${uah(sum(pp.filter((r) => r.category === 'fail')))}` : ''}`)}
     ${kpi('Знайдено в банку', `${int(done.length)} <span class="muted" style="font-size:14px">з ${int(rows.length)}</span>`, rows.length - done.length ? `<span class="warn-t">ще не звірено ${uah(sum(rows) - sum(done))}</span>` : 'усе звірено')}
@@ -1890,7 +1905,7 @@ PAGES.vault = async (seq) => {
   const entRow = (e) => `<tr><td>${e.kind === 'income' ? '<span class="pill success">дохід</span>' : '<span class="pill fail">витрата</span>'}</td><td><b>${esc(e.name)}</b>${e.comment ? `<div class="muted small">${esc(e.comment)}</div>` : ''}</td><td class="n">${nf2.format(N(e.amount))} ${e.currency === 'UAH' ? '₴' : esc(e.currency)}</td><td class="n ${e.kind === 'expense' ? 'neg' : ''}">${e.kind === 'expense' ? '−' : '+'}${uah(N(e.amount_uah))}</td><td class="n"><button class="icon-btn" data-vdel="${e.id}" title="Видалити">${icon('trash')}</button></td></tr>`;
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Мій чистий дохід за ${mName}</span></div><div class="kpi-v ${C.result < 0 ? 'neg' : ''}">${uah(C.result)}</div><div class="kpi-s">${usdS(C.result)} за курсом ${nf2.format(usd)} ₴${to < monthRange(m)[2] ? ' · місяць ще триває' : ''}</div></div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Мій чистий дохід за ${mName}</span></span></div><div class="kpi-v ${C.result < 0 ? 'neg' : ''}">${uah(C.result)}</div><div class="kpi-s">${usdS(C.result)} за курсом ${nf2.format(usd)} ₴${to < monthRange(m)[2] ? ' · місяць ще триває' : ''}</div></div>
     ${kpi('Прибуток з одягу', uah(C.clothes), `${usdS(C.clothes)}${C.sh.length ? ` · після часток ${C.sh.map((r) => esc(r.p.name)).join(', ')}` : ''}`)}
     ${kpi('Інші доходи', uah(C.inc), C.ent.filter((e) => e.kind === 'income').map((e) => esc(e.name)).join(', ') || 'додайте нижче')}
     ${kpi('Особисті витрати', uah(C.exp), C.exp ? usdS(C.exp) : 'немає')}
@@ -2100,7 +2115,7 @@ PAGES.fop = async (seq) => {
   const fopName = (id) => fops.find((f) => f.id === N(id))?.name || '—';
   $('#page').innerHTML = `
   <div class="kpis">
-    <div class="kpi hero"><div class="kpi-l"><span>Податки ФОП за ${mName}</span></div><div class="kpi-v">${uah(paidSum)}</div><div class="kpi-s">сплачено · ${due.filter((c) => c.paid).length} з ${due.length} ФОП${leftSum ? ` · лишилось ${uah(leftSum)} — ${leftCards.map((c) => esc(c.f.name)).join(', ')}` : due.length ? ' · усе сплачено' : ''}</div></div>
+    <div class="kpi hero"><div class="kpi-l"><span class="kpi-n"><i class="kpi-ic t-w">${icon('trend')}</i><span>Податки ФОП за ${mName}</span></span></div><div class="kpi-v">${uah(paidSum)}</div><div class="kpi-s">сплачено · ${due.filter((c) => c.paid).length} з ${due.length} ФОП${leftSum ? ` · лишилось ${uah(leftSum)} — ${leftCards.map((c) => esc(c.f.name)).join(', ')}` : due.length ? ' · усе сплачено' : ''}</div></div>
     ${kpi('Дохід ФОП за місяць', uah(cardTotal + supTotal), unassigned ? `<span class="warn-t">${uah(unassigned)} оплат не прив’язано до ФОП</span>` : 'оплати на рахунок + виплати постачальника')}
     ${kpi('Оплати на рахунок', uah(cardTotal), `${int((cardList || []).length)} замовлень із CRM + ручні`)}
     ${kpi('Виплати від постачальника', uah(supTotal), `${int(receipts.length)} записів`)}
