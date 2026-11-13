@@ -2350,7 +2350,7 @@ PAGES.settings = async (seq) => {
       <div class="tw" style="margin-top:12px"><table class="t"><thead><tr><th>Коли</th><th class="n">Замовлень</th><th>Результат</th></tr></thead><tbody>${log.map((l) => `<tr><td style="white-space:nowrap">${fdt(l.at)}</td><td class="n">${int(N(l.orders))}</td><td class="${l.ok ? '' : 'neg'} small">${esc(l.message || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Ще не було запусків</td></tr>'}</tbody></table></div></section>
 
     <section class="card c6"><div class="card-h"><div><h2 class="card-t">Основне</h2></div></div>
-      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div class="form" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start">
         <label class="f" style="grid-column:span 2">Назва в меню<input type="text" id="sName" value="${esc(st.store_name || '')}" placeholder="Одяг"></label>
         <label class="f">Курс долара, ₴<input type="text" id="sUsd" inputmode="decimal" value="${esc(st.usd_rate ?? '')}"><span class="muted small" style="font-weight:400">${usdHist().length > 1 ? 'Історія: ' + usdHist().map((h, i) => `${nf2.format(N(h.rate))} ${i ? 'з ' + fdate(h.from) : '(спочатку)'}`).join(' → ') : 'Новий курс діє з дня зміни'}</span></label>
         <label class="f">Курс євро, ₴<input type="text" id="sEur" inputmode="decimal" value="${esc(st.eur_rate ?? '')}"></label>
